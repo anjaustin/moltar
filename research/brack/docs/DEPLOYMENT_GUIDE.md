@@ -44,13 +44,18 @@ This script will:
 
 ### 2. Model Acquisition
 ```bash
-# Download LFN model (requires Liquid.ai access)
-./scripts/download_lfm_model.sh --model lfm-2b-chat
+# Download LFN model from HuggingFace
+./scripts/download_lfm_model.sh liquid-ai/LFM-2B-Chat
 
-# Place model files in models/ directory
-# - lfm-2b-chat.pte (ExecuTorch model file)
+# Available models on HuggingFace:
+# liquid-ai/LFM-2B-Chat   (recommended for mobile devices)
+# liquid-ai/LFM-7B-Chat   (advanced conversational model)
+# liquid-ai/LFM-40B-Chat  (high-capability model)
+
+# Model files will be automatically downloaded to models/ directory:
+# - model.pte (ExecuTorch model file)
 # - tokenizer.json (tokenizer configuration)
-# - config.json (model configuration)
+# - config.json (model hyperparameters)
 ```
 
 ### 3. Application Build

@@ -14,6 +14,7 @@ pandas>=2.0.0
 # Networking and downloads
 requests>=2.31.0
 urllib3>=2.0.0
+huggingface-hub>=0.17.0
 
 # Progress bars and CLI
 tqdm>=4.65.0

@@ -60,8 +60,13 @@ cd research/brack
 
 ### 2. Download LFN Model
 ```bash
-# Download Liquid.ai LFM chat model
-./scripts/download_lfm_model.sh --model lfm-2b-chat
+# Download LFN model from HuggingFace
+./scripts/download_lfm_model.sh liquid-ai/LFM-2B-Chat
+
+# Available models:
+# liquid-ai/LFM-2B-Chat   (recommended for mobile)
+# liquid-ai/LFM-7B-Chat   (advanced conversational)
+# liquid-ai/LFM-40B-Chat  (high-capability model)
 ```
 
 ### 3. Build Android App
