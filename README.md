@@ -10,19 +10,82 @@ This repository provides a clean foundation for conducting rigorous, reproducibl
 
 ```
 moltar/
-├── tools/              # Research tools and utilities
-│   └── android/        # Android platform tools (ADB, Fastboot)
-├── scripts/            # Research automation scripts
-│   └── device/         # Device connection and setup scripts
-├── docs/               # Research documentation and methodology
-│   └── methodology/    # Research method frameworks
-├── research/           # Active research data and analysis
-│   ├── data/          # Research data collections
-│   └── analysis/      # Research analysis results
-└── archive/           # Historical falsified research (ignored)
+├── moltar                    # Command launcher (./moltar setup)
+├── moltar_setup.sh          # One-click setup wizard
+├── tools/                    # Research tools and utilities
+│   └── android/             # Android platform tools (ADB, Fastboot)
+├── scripts/                 # Research automation scripts
+│   └── device/              # Device connection and setup scripts
+├── docs/                    # Research documentation and methodology
+│   └── methodology/         # Research method frameworks
+├── research/                # Active research data and analysis
+│   ├── data/               # Research data collections
+│   └── analysis/           # Research analysis results
+└── archive/                # Historical falsified research (ignored)
 ```
 
-## Quick Start
+## Command Launcher
+
+Use the `moltar` command for easy access to all functionality:
+
+```bash
+# One-click setup
+./moltar setup
+
+# Quick connect
+./moltar setup --quick
+
+# Device operations
+./moltar connect         # Connect to device
+./moltar research        # Setup research environment
+./moltar device info     # Show device information
+./moltar device test     # Test connectivity
+
+# Help
+./moltar help
+```
+
+### Global Installation (Optional)
+
+Make moltar available system-wide:
+
+```bash
+# Add to your shell profile
+echo 'export PATH="$PATH:/path/to/moltar"' >> ~/.zshrc
+
+# Or create a symlink
+sudo ln -s /path/to/moltar/moltar /usr/local/bin/moltar
+
+# Then use from anywhere
+moltar setup
+```
+
+## 🚀 One-Click Setup (Recommended for Newcomers)
+
+### First-Time Setup
+```bash
+# One-click automated setup - handles everything!
+./moltar_setup.sh
+```
+
+This wizard will:
+- ✅ Detect your Motorola device
+- ✅ Guide you through USB debugging setup
+- ✅ Handle ADB authorization
+- ✅ Configure root access (optional)
+- ✅ Set up complete research environment
+- ✅ Generate quick-start documentation
+
+### Daily Research Sessions
+```bash
+# Quick connect for established setups
+./moltar_setup.sh --quick
+
+# Or use the command launcher
+./moltar setup --quick
+```
+
+## Manual Setup (Advanced Users)
 
 ### 1. Connect Your Device
 ```bash

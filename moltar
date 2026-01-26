@@ -1,0 +1,58 @@
+#!/bin/bash
+
+# Moltar Command Launcher
+# Easy access to all moltar functionality
+
+set -e
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+case "${1:-}" in
+    "setup"|"-s")
+        shift
+        "$REPO_ROOT/moltar_setup.sh" "$@"
+        ;;
+    "connect"|"-c")
+        "$REPO_ROOT/scripts/device/connect_device.sh"
+        ;;
+    "research"|"-r")
+        "$REPO_ROOT/scripts/device/setup_research_device.sh"
+        ;;
+    "device"|"-d")
+        case "${2:-}" in
+            "info")
+                "$REPO_ROOT/scripts/device/connect_device.sh" info
+                ;;
+            "test")
+                "$REPO_ROOT/scripts/device/connect_device.sh" test
+                ;;
+            *)
+                echo "Usage: moltar device {info|test}"
+                exit 1
+                ;;
+        esac
+        ;;
+    "help"|"-h"|"--help")
+        echo "Moltar Research Environment"
+        echo ""
+        echo "Usage:"
+        echo "  moltar setup           # One-click device setup wizard"
+        echo "  moltar setup --quick   # Quick connect for established setups"
+        echo "  moltar connect         # Connect to device"
+        echo "  moltar research        # Setup research environment"
+        echo "  moltar device info     # Show device information"
+        echo "  moltar device test     # Test device connectivity"
+        echo "  moltar help            # Show this help"
+        echo ""
+        echo "Examples:"
+        echo "  moltar setup           # First-time setup"
+        echo "  moltar connect         # Daily device connection"
+        echo ""
+        ;;
+    *)
+        echo "Moltar Research Environment"
+        echo ""
+        echo "Run 'moltar help' for usage information"
+        echo "Run 'moltar setup' for one-click device setup"
+        ;;
+esac
