@@ -22,6 +22,7 @@ moltar/
 ├── research/                # Active research data and analysis
 │   ├── data/               # Research data collections
 │   └── analysis/           # Research analysis results
+├── logs/                    # Setup and debug logs
 ├── archive/                # Historical falsified research (ignored)
 ├── CHANGELOG.md            # Complete change history
 └── README.md               # This file
