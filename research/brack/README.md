@@ -60,11 +60,12 @@ cd research/brack
 
 ### 2. Download LFN Model
 ```bash
-# Download LFN model from HuggingFace
-./scripts/download_lfm_model.sh liquid-ai/LFM-2B-Chat
+# Download LFN model from HuggingFace (350M recommended for mobile)
+./scripts/download_lfm_model.sh LiquidAI/LFM2-350M
 
 # Available models:
-# liquid-ai/LFM-2B-Chat   (recommended for mobile)
+# LiquidAI/LFM2-350M      ⭐ RECOMMENDED for Motorola/Snapdragon
+# liquid-ai/LFM-2B-Chat   (conversational model)
 # liquid-ai/LFM-7B-Chat   (advanced conversational)
 # liquid-ai/LFM-40B-Chat  (high-capability model)
 ```
@@ -92,6 +93,13 @@ cd research/brack
 - **LFM-40B-Chat**: 40B parameter high-capability model
 
 ### Performance Targets (Snapdragon 480)
+#### LFM2-350M (Recommended):
+- **Latency**: <200ms response time ⚡
+- **Memory**: <256MB RAM usage 💾
+- **Storage**: ~500MB model size 📱
+- **Battery**: <5% additional drain 🔋
+
+#### Larger Models:
 - **Latency**: <500ms response time
 - **Memory**: <512MB RAM usage
 - **Battery**: <10% additional drain
