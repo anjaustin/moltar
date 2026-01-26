@@ -66,7 +66,7 @@ This script will:
 |---------------|-----------|-----------|
 | **Parameters** | 350M | 2B (6x larger) |
 | **Storage** | ~500MB | ~2GB (4x smaller) |
-| **Memory** | <256MB | <512MB (2x efficient) |
+| **Memory** | <700MB | <512MB (Note: Higher due to bfloat16) |
 | **Latency** | <200ms | <500ms (2.5x faster) |
 | **Battery** | <5% drain | <10% drain (2x efficient) |
 

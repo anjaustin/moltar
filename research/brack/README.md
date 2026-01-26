@@ -95,7 +95,7 @@ cd research/brack
 ### Performance Targets (Snapdragon 480)
 #### LFM2-350M (Recommended):
 - **Latency**: <200ms response time ⚡
-- **Memory**: <256MB RAM usage 💾
+- **Memory**: <700MB RAM usage 💾
 - **Storage**: ~500MB model size 📱
 - **Battery**: <5% additional drain 🔋
 
