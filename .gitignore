@@ -42,6 +42,7 @@ Thumbs.db
 *.temp
 
 # Archives (we have our own archive/ directory)
+archive/
 *.zip
 *.tar.gz
 *.tar.bz2
