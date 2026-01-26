@@ -16,12 +16,25 @@ SpaceGhost focuses on improving ExecuTorch's performance and capabilities for mo
 
 ```
 spaceghost/
-├── README.md                    # This file
-├── research/                    # Research documentation and findings
-├── patches/                     # Proposed improvements and patches
-├── benchmarks/                  # Performance testing and results
-├── executorch/                  # Cloned ExecuTorch repository
-└── integration/                 # Integration with moltar/Brack
+├── EXECUTORCH_OPTIMIZATION_PRD.md  # 📋 Product Requirements Document
+├── README.md                       # This file
+├── setup_environment.sh           # Automated development setup
+├── research/                       # Research documentation and findings
+│   ├── INITIAL_ASSESSMENT.md       # Current state analysis & opportunities
+│   └── WEB_BOTTLENECKS_ANALYSIS.md # Web research findings
+├── patches/                        # Proposed improvements and patches
+│   ├── dsp/                        # DSP kernel optimizations
+│   ├── memory/                     # Memory management improvements
+│   ├── lfm/                        # Liquid AI specific optimizations
+│   └── quantization/               # Quantization enhancements
+├── benchmarks/                     # Performance testing and results
+│   ├── baseline/                   # Current performance measurements
+│   ├── optimized/                  # Optimized performance results
+│   └── comparison/                 # Comparative analysis
+├── executorch/                     # Full ExecuTorch repository (development)
+└── integration/                    # Integration with moltar/Brack
+    ├── brack/                      # Brack-specific integration
+    └── moltar/                     # Moltar ecosystem compatibility
 ```
 
 ## Research Goals

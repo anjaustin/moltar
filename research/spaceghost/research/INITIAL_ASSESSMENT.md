@@ -15,11 +15,14 @@ ExecuTorch provides a solid foundation for on-device AI inference but has signif
 - **Active development** (Meta/PyTorch ecosystem)
 
 ### Limitations for Mobile LFN Deployment
-- **DSP utilization**: <50% of Snapdragon 480 Hexagon DSP capacity
-- **Memory efficiency**: 2x higher peak usage than theoretical minimum
-- **LFM optimization**: Generic PyTorch execution, not Liquid-specific
-- **Power management**: Limited battery optimization features
-- **Research instrumentation**: Minimal performance profiling tools
+- **XNNPack Backend Issues**: 2-3x slower than ONNX Runtime, missing operators (MaxPool2d failures)
+- **DSP utilization**: <50% of Snapdragon 480 Hexagon DSP capacity (6-9 TOPS actual vs 15 TOPS theoretical)
+- **Memory efficiency**: 2x higher peak usage than theoretical minimum, poor memory planning
+- **Quantization Problems**: Accuracy loss, dynamic quantization chain duplication, limited debugging tools
+- **LFM optimization**: Generic PyTorch execution, not Liquid-specific, poor attention mechanism support
+- **Power management**: Limited battery optimization features, poor thermal management
+- **Setup Complexity**: Build system failures, immature tooling, weeks-long LLM deployment process
+- **Research instrumentation**: Minimal performance profiling tools, limited debugging capabilities
 
 ## Snapdragon 480 Hardware Analysis
 
