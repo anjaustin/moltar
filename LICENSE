@@ -1,0 +1,97 @@
+# Moltar Research License
+
+Copyright (c) 2026 Tripp Josserand-Austin
+
+## Preamble
+
+The Moltar repository contains research code, documentation, and methodologies for conducting auditable security research. This license governs the use, modification, and distribution of the materials contained herein.
+
+## Terms and Conditions
+
+### 1. Research Use Grant
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Materials"), to use, copy, modify, merge, publish, and distribute the Materials for research purposes, subject to the following conditions:
+
+- **Academic and Non-Commercial Use**: The Materials may be used for academic research, educational purposes, and non-commercial security research.
+- **Attribution**: Any use, modification, or distribution must include clear attribution to the original Moltar repository and its contributors.
+- **Research Integrity**: Users must adhere to the research methodologies and ethical guidelines outlined in the Materials.
+
+### 2. Commercial Use Restrictions
+Commercial use of the Materials is strictly prohibited without explicit written permission from the copyright holder. This includes, but is not limited to:
+
+- Incorporation into commercial products or services
+- Use in for-profit research or development
+- Distribution as part of commercial software packages
+- Any use that generates revenue or provides commercial advantage
+
+### 3. Modification and Derivative Works
+Modifications and derivative works are permitted for research purposes under the following conditions:
+
+- **Research Scope**: Modifications must be for legitimate research purposes
+- **Documentation**: Significant modifications must be clearly documented
+- **Compatibility**: Modified versions must maintain compatibility with the original research methodologies where applicable
+- **Attribution**: Clear attribution to the original Materials must be maintained
+
+### 4. Distribution Requirements
+When distributing the Materials or derivative works:
+
+- **Include License**: This license must be included with any distribution
+- **Preserve Notices**: Copyright notices and disclaimers must be preserved
+- **Clear Identification**: Modified versions must be clearly identified as such
+- **Research Context**: Distribution must maintain the research context and purpose
+
+### 5. Patent Rights
+No patent licenses are granted under this license. Users are responsible for ensuring their use complies with applicable patent laws.
+
+### 6. Warranty Disclaimer
+THE MATERIALS ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE MATERIALS OR THE USE OR OTHER DEALINGS IN THE MATERIALS.
+
+### 7. Research Ethics
+Users of this repository agree to:
+
+- **Ethical Research**: Conduct research in accordance with established ethical guidelines
+- **Responsible Disclosure**: Handle security findings responsibly
+- **Methodological Rigor**: Apply proper scientific methods and statistical analysis
+- **Transparency**: Share research methods and results openly where appropriate
+- **Harm Prevention**: Avoid research that could cause harm or violate privacy
+
+### 8. Termination
+This license and the rights granted hereunder will terminate automatically if you fail to comply with any of the terms and conditions. Upon termination, you must cease all use of the Materials and destroy all copies in your possession.
+
+### 9. Governing Law
+This license shall be governed by and construed in accordance with the laws of applicable jurisdiction, without regard to its conflict of law provisions.
+
+### 10. Contact Information
+For questions about this license or permissions for commercial use:
+
+- **Maintainer**: Tripp Josserand-Austin
+- **Email**: iam@anjaustin.com
+- **Repository**: https://github.com/anjaustin/moltar
+
+## Third-Party Components
+
+This repository includes or references third-party components that may be subject to different licenses:
+
+- **ExecuTorch**: Apache 2.0 License (PyTorch)
+- **Liquid.ai LFM Models**: Liquid AI License terms
+- **Android Open Source Project**: Apache 2.0 License
+- **Python Packages**: Respective package licenses
+
+Users are responsible for complying with the licenses of all third-party components.
+
+## Research Attribution
+
+When referencing or building upon the research methodologies in this repository, please cite:
+
+```
+Josserand-Austin, T. (2026). Moltar: Auditable Security Research Framework.
+https://github.com/anjaustin/moltar
+```
+
+## Version History
+
+- **v1.0** (January 26, 2026): Initial release with research methodology framework
+- Future versions may introduce additional terms for expanded capabilities
+
+---
+
+*This license balances open research access with responsible use and commercial protection. For commercial licensing inquiries, please contact the maintainer directly.*

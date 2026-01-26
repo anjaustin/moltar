@@ -164,9 +164,14 @@ See [CHANGELOG.md](CHANGELOG.md) for complete version history, breaking changes,
 ## 📚 Documentation
 
 ### Core Documentation
+- **[INSTALL.md](INSTALL.md)** - Complete installation and setup guide
+- **[API.md](API.md)** - API reference for all tools and interfaces
+- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - Common issues and solutions
 - **[CHANGELOG.md](CHANGELOG.md)** - Complete change history and version releases
 - **[MAINTAINERS.md](MAINTAINERS.md)** - Maintenance and governance guidelines
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** - Contribution guidelines and research standards
+- **[SECURITY.md](SECURITY.md)** - Security policy and responsible disclosure
+- **[LICENSE](LICENSE)** - Research license terms and conditions
 - **[docs/README.md](docs/README.md)** - Documentation overview and guides
 - **[docs/methodology/RESEARCH_METHODOLOGY.md](docs/methodology/RESEARCH_METHODOLOGY.md)** - Research standards and validation frameworks
 - **[scripts/README.md](scripts/README.md)** - Device connection and automation guides
