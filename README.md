@@ -167,6 +167,12 @@ See [CHANGELOG.md](CHANGELOG.md) for complete version history, breaking changes,
 - **[INSTALL.md](INSTALL.md)** - Complete installation and setup guide
 - **[API.md](API.md)** - API reference for all tools and interfaces
 - **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - Common issues and solutions
+- **[PERFORMANCE.md](PERFORMANCE.md)** - Performance benchmarks and optimization
+- **[DEVELOPMENT.md](DEVELOPMENT.md)** - Development workflow and guidelines
+- **[ROADMAP.md](ROADMAP.md)** - Project vision and future plans
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - System architecture and design
+- **[FAQ.md](FAQ.md)** - Frequently asked questions
+- **[GLOSSARY.md](GLOSSARY.md)** - Technical terms and definitions
 - **[CHANGELOG.md](CHANGELOG.md)** - Complete change history and version releases
 - **[MAINTAINERS.md](MAINTAINERS.md)** - Maintenance and governance guidelines
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** - Contribution guidelines and research standards
