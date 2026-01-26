@@ -34,8 +34,9 @@ dist/
 .DS_Store
 Thumbs.db
 
-# Log files
+# Log files (but track setup logs)
 *.log
+!logs/*.log
 
 # Temporary files
 *.tmp
