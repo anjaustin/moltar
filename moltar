@@ -12,6 +12,9 @@ case "${1:-}" in
         shift
         "$REPO_ROOT/moltar_setup.sh" "$@"
         ;;
+    "setup:non-interactive"|"-ni")
+        "$REPO_ROOT/moltar_setup.sh" --non-interactive
+        ;;
     "connect"|"-c")
         "$REPO_ROOT/scripts/device/connect_device.sh"
         ;;
@@ -36,13 +39,14 @@ case "${1:-}" in
         echo "Moltar Research Environment"
         echo ""
         echo "Usage:"
-        echo "  moltar setup           # One-click device setup wizard"
-        echo "  moltar setup --quick   # Quick connect for established setups"
-        echo "  moltar connect         # Connect to device"
-        echo "  moltar research        # Setup research environment"
-        echo "  moltar device info     # Show device information"
-        echo "  moltar device test     # Test device connectivity"
-        echo "  moltar help            # Show this help"
+        echo "  moltar setup                      # One-click device setup wizard"
+        echo "  moltar setup --quick             # Quick connect for established setups"
+        echo "  moltar setup:non-interactive     # Full setup without prompts"
+        echo "  moltar connect                    # Connect to device"
+        echo "  moltar research                   # Setup research environment"
+        echo "  moltar device info                # Show device information"
+        echo "  moltar device test                # Test device connectivity"
+        echo "  moltar help                       # Show this help"
         echo ""
         echo "Examples:"
         echo "  moltar setup           # First-time setup"

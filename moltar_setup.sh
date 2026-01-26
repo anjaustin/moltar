@@ -5,6 +5,33 @@
 
 set -e
 
+# Cleanup trap for signal handling
+cleanup() {
+    local exit_code=$?
+    log_info "Cleaning up..."
+    # Add cleanup logic here if needed
+    exit $exit_code
+}
+
+trap cleanup EXIT ERR INT TERM
+
+# Timeout wrapper for ADB commands
+adb_command() {
+    local timeout_seconds=30
+    local cmd="$*"
+
+    # Run command with timeout
+    timeout $timeout_seconds bash -c "$cmd" 2>&1 || {
+        local exit_code=$?
+        if [ $exit_code -eq 124 ]; then
+            log_error "ADB command timed out after ${timeout_seconds}s: $cmd"
+        else
+            log_error "ADB command failed: $cmd"
+        fi
+        return $exit_code
+    }
+}
+
 # Colors and formatting
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -91,9 +118,7 @@ check_system_requirements() {
     if [[ ${#missing_tools[@]} -gt 0 ]]; then
         log_warning "Missing recommended tools: ${missing_tools[*]}"
         echo ""
-        read -p "Install missing tools automatically? (y/N): " -n 1 -r
-        echo ""
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
+        if [[ "$(prompt_user "Install missing tools automatically? (y/N): " "N")" =~ ^[Yy]$ ]]; then
             install_missing_tools "${missing_tools[@]}"
         fi
     fi
@@ -130,7 +155,7 @@ device_detection_wizard() {
     echo ""
 
     # Check if device is already connected
-    if "$TOOLS_DIR/adb" devices 2>/dev/null | grep -q "device$"; then
+    if adb_command "$TOOLS_DIR/adb devices 2>/dev/null" | grep -q "device$"; then
         log_success "Device already connected!"
         show_device_info
         return 0
@@ -182,7 +207,7 @@ device_detection_wizard() {
 
 # Show device information
 show_device_info() {
-    local device_info=$("$TOOLS_DIR/adb" shell getprop 2>/dev/null | grep -E "(ro.product.model|ro.build.version.release|ro.product.manufacturer)" | sort)
+    local device_info=$(adb_command "$TOOLS_DIR/adb shell getprop 2>/dev/null" | grep -E "(ro.product.model|ro.build.version.release|ro.product.manufacturer)" | sort)
 
     echo ""
     echo -e "${BOLD}Connected Device Information:${NC}"
@@ -202,7 +227,7 @@ root_setup_wizard() {
     echo ""
 
     # Check current root status
-    if "$TOOLS_DIR/adb" shell su -c "whoami" 2>/dev/null | grep -q "root"; then
+    if adb_command "$TOOLS_DIR/adb shell su -c \"whoami\" 2>/dev/null" | grep -q "root"; then
         log_success "Root access already available!"
         return 0
     fi
@@ -211,10 +236,7 @@ root_setup_wizard() {
     echo "Some advanced features may be limited without root access."
     echo ""
 
-    read -p "Would you like to set up root access? (y/N): " -n 1 -r
-    echo ""
-
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    if [[ ! "$(prompt_user "Would you like to set up root access? (y/N): " "N")" =~ ^[Yy]$ ]]; then
         log_info "Skipping root setup. You can set it up later if needed."
         return 0
     fi
@@ -237,8 +259,7 @@ root_setup_wizard() {
     echo "   • Follow Magisk's patching instructions"
     echo ""
 
-    read -p "Press Enter when you have Magisk APK ready in Downloads..."
-    read -r
+    prompt_user "Press Enter when you have Magisk APK ready in Downloads..."
 
     # Look for Magisk APK
     local magisk_apk=""
@@ -275,8 +296,7 @@ root_setup_wizard() {
     echo "5. Follow the patching instructions"
     echo ""
 
-    read -p "Press Enter after completing Magisk setup on device..."
-    read -r
+    prompt_user "Press Enter after completing Magisk setup on device..."
 
     # Verify root access
     if "$TOOLS_DIR/adb" shell su -c "whoami" 2>/dev/null | grep -q "root"; then
@@ -473,7 +493,7 @@ main_setup() {
 quick_mode() {
     log_info "Running quick setup mode..."
 
-    if ! "$TOOLS_DIR/adb" devices 2>/dev/null | grep -q "device$"; then
+    if ! adb_command "$TOOLS_DIR/adb devices 2>/dev/null" | grep -q "device$"; then
         log_error "No device connected. Run full setup first."
         exit 1
     fi
@@ -482,18 +502,47 @@ quick_mode() {
     log_success "Device ready for research!"
 }
 
+# Interactive prompt wrapper
+prompt_user() {
+    local prompt="$1"
+    local default="${2:-N}"
+    local response
+
+    # Check if running non-interactively
+    if [[ ! -t 0 ]] || [[ "${NON_INTERACTIVE:-false}" == "true" ]]; then
+        log_info "Non-interactive mode: defaulting to '$default' for: $prompt"
+        response="$default"
+    else
+        read -p "$prompt" -n 1 -r response
+        echo ""  # New line after single char input
+        response="${response:-$default}"
+    fi
+
+    # Return the response via echo for capture
+    echo "$response"
+}
+
 # Parse command line arguments
 case "${1:-}" in
     "--quick"|"-q")
         quick_mode
         ;;
+    "--non-interactive"|"-ni")
+        export NON_INTERACTIVE=true
+        log_info "Running in non-interactive mode"
+        main_setup
+        ;;
     "--help"|"-h")
         echo "Moltar Device Setup"
         echo ""
         echo "Usage:"
-        echo "  ./moltar_setup.sh          # Full setup wizard"
-        echo "  ./moltar_setup.sh --quick  # Quick connect for established setups"
-        echo "  ./moltar_setup.sh --help   # Show this help"
+        echo "  ./moltar_setup.sh                    # Full setup wizard (interactive)"
+        echo "  ./moltar_setup.sh --quick           # Quick connect for established setups"
+        echo "  ./moltar_setup.sh --non-interactive # Full setup without prompts"
+        echo "  ./moltar_setup.sh --help            # Show this help"
+        echo ""
+        echo "Environment Variables:"
+        echo "  NON_INTERACTIVE=true                # Force non-interactive mode"
         ;;
     *)
         main_setup
