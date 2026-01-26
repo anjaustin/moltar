@@ -185,3 +185,104 @@ flycheck_*.el
 
 # network security
 /network-security.data
+
+# Research Data and Analysis
+*.csv
+*.xlsx
+*.xls
+*.json
+*.xml
+research/data/raw/
+research/data/interim/
+research/analysis/cache/
+*.pkl
+*.pickle
+*.h5
+*.hdf5
+
+# Research Reports and Papers
+*.pdf
+*.docx
+*.doc
+*.tex
+*.bib
+
+# Experiment Logs and Results
+experiment_*.log
+results_*.json
+benchmark_*.csv
+performance_*.log
+
+# Device-specific Data
+device_*.log
+capture_*.bin
+entropy_*.dat
+*.rrd
+
+# Temporary Research Files
+temp/
+tmp/
+scratch/
+.notebook_checkpoints/
+
+# Environment and Secrets
+.env
+.env.local
+.env.*.local
+secrets/
+keys/
+
+# IDE and Editor Files (additional)
+.vscode/settings.json
+.idea/workspace.xml
+*.swp
+*.swo
+*~
+
+# OS Generated Files (additional)
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Python Research Libraries
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Jupyter Notebooks (if used for analysis)
+.ipynb_checkpoints/
+
+# R Language (for statistical analysis)
+.Rhistory
+.RData
+*.Rproj
+.Rproj.user/
+
+# MATLAB/Octave
+*.m~
+*.mat
+
+# Research-specific Archives
+research_backup_*.tar.gz
+data_backup_*.zip

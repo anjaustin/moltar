@@ -12,6 +12,7 @@ This repository provides a clean foundation for conducting rigorous, reproducibl
 moltar/
 ├── moltar                    # Command launcher (./moltar setup)
 ├── moltar_setup.sh          # One-click setup wizard
+├── install.sh               # Global installation script
 ├── tools/                    # Research tools and utilities
 │   └── android/             # Android platform tools (ADB, Fastboot)
 ├── scripts/                 # Research automation scripts
@@ -21,7 +22,9 @@ moltar/
 ├── research/                # Active research data and analysis
 │   ├── data/               # Research data collections
 │   └── analysis/           # Research analysis results
-└── archive/                # Historical falsified research (ignored)
+├── archive/                # Historical falsified research (ignored)
+├── CHANGELOG.md            # Complete change history
+└── README.md               # This file
 ```
 
 ## Command Launcher
@@ -151,9 +154,42 @@ The `archive/` directory contains materials from falsified entropy-based securit
 - Practice open science principles
 - Submit negative results alongside positive findings
 
+## 📋 Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for complete version history, breaking changes, and repository evolution.
+
+---
+
+## 📚 Documentation
+
+### Core Documentation
+- **[CHANGELOG.md](CHANGELOG.md)** - Complete change history and version releases
+- **[MAINTAINERS.md](MAINTAINERS.md)** - Maintenance and governance guidelines
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** - Contribution guidelines and research standards
+- **[docs/README.md](docs/README.md)** - Documentation overview and guides
+- **[docs/methodology/RESEARCH_METHODOLOGY.md](docs/methodology/RESEARCH_METHODOLOGY.md)** - Research standards and validation frameworks
+- **[scripts/README.md](scripts/README.md)** - Device connection and automation guides
+
+### Generated Documentation
+- **QUICK_START.md** - Auto-generated during setup with device-specific instructions
+- **deployment_report.md** - Generated during device setup with performance metrics
+
+---
+
+## 🔬 Research Standards
+
+This repository adheres to rigorous scientific methodology:
+
+- **Pre-registered protocols** before data collection
+- **Falsification-first approach** to hypothesis testing
+- **Independent validation** of all claims
+- **Complete audit trails** for reproducibility
+- **Statistical rigor** in experimental design
+
 ---
 
 **Repository:** moltar
 **Started:** January 26, 2026
 **Methodology:** Systematic falsification and rigorous validation
 **Focus:** Auditable security research on embedded devices
+**Version:** 1.0.0
