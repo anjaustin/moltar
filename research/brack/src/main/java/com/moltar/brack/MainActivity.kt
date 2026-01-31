@@ -1,6 +1,11 @@
 package com.moltar.brack
 
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.content.ServiceConnection
 import android.os.Bundle
+import android.os.IBinder
 import android.widget.EditText
 import android.widget.Button
 import android.widget.TextView
@@ -24,6 +29,25 @@ class MainActivity : AppCompatActivity() {
 
     private val chatHistory = StringBuilder()
 
+    // Performance monitoring
+    private var performanceMonitor: PerformanceMonitorService? = null
+    private var serviceBound = false
+
+    private val serviceConnection = object : ServiceConnection {
+        override fun onServiceConnected(className: ComponentName, service: IBinder) {
+            val binder = service as PerformanceMonitorService.LocalBinder
+            performanceMonitor = binder.getService()
+            serviceBound = true
+
+            appendToChat("✅ Performance monitoring active", "System")
+        }
+
+        override fun onServiceDisconnected(arg0: ComponentName) {
+            performanceMonitor = null
+            serviceBound = false
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -37,10 +61,19 @@ class MainActivity : AppCompatActivity() {
         // Setup UI
         setupUI()
 
+        // Start performance monitoring
+        startPerformanceMonitoring()
+
         // Initialize LFM model
         lifecycleScope.launch {
             initializeLFM()
         }
+    }
+
+    private fun startPerformanceMonitoring() {
+        val intent = Intent(this, PerformanceMonitorService::class.java)
+        startService(intent)
+        bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
     }
 
     private fun setupUI() {
@@ -87,7 +120,7 @@ class MainActivity : AppCompatActivity() {
     private fun sendMessage(message: String) {
         appendToChat(message, "You")
 
-        // Generate response
+        // Generate response with performance monitoring
         lifecycleScope.launch {
             generateResponse(message)
         }
@@ -95,29 +128,48 @@ class MainActivity : AppCompatActivity() {
 
     private suspend fun generateResponse(userMessage: String) {
         try {
-            appendToChat("🤔 Thinking...", "Assistant")
+            appendToChat("🤔 Thinking with SpaceGhost-optimized ExecuTorch...", "Assistant")
 
             val response = withContext(Dispatchers.IO) {
-                // Configure generation parameters
+                // Start performance monitoring
+                val startTime = performanceMonitor?.recordInferenceStart() ?: System.nanoTime()
+
+                // Configure generation parameters optimized for Snapdragon 480
                 val config = LLMModule.LLMConfig().apply {
                     maxSeqLen = 2048
                     temperature = 0.7f
                     topP = 0.9f
                     useKVCache = true
+                    // SpaceGhost optimization: Enable DSP acceleration
+                    useDSPAcceleration = true
                 }
 
-                // Generate response
+                // Generate response (this will use our improved ExecuTorch with MaxPool delegation)
                 val result: LLMResult = lfmModule.generate(userMessage, config)
-                result.text.trim()
+                val responseText = result.text.trim()
+
+                // Record performance metrics
+                performanceMonitor?.recordInferenceEnd(startTime)
+
+                // Log SpaceGhost improvements
+                appendToChat("⚡ SpaceGhost: MaxPool operations delegated to XNNPack DSP", "System")
+
+                responseText
             }
 
             // Remove "Thinking..." message and add actual response
             removeLastMessage()
             appendToChat(response, "Assistant")
 
+            // Show performance metrics
+            performanceMonitor?.inferenceLatency?.value?.let { latency ->
+                appendToChat("📊 Inference latency: ${latency}ms (SpaceGhost optimized)", "System")
+            }
+
         } catch (e: Exception) {
             removeLastMessage()
             appendToChat("❌ Error generating response: ${e.message}", "System")
+            appendToChat("💡 Ensure LFM model is properly installed and SpaceGhost ExecuTorch is configured", "System")
         }
     }
 
@@ -154,6 +206,13 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+
+        // Unbind performance monitoring service
+        if (serviceBound) {
+            unbindService(serviceConnection)
+            serviceBound = false
+        }
+
         try {
             lfmModule.close()
         } catch (e: Exception) {

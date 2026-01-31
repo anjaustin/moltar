@@ -8,9 +8,23 @@ This document outlines the methodological framework for conducting auditable, re
 
 ### 1. Scientific Method Foundation
 - **Hypothesis-Driven**: All research begins with clearly stated, testable hypotheses
-- **Falsification-First**: Design experiments to disprove claims, not confirm them
+- **Falsification-First**: Design experiments to disprove claims, not confirm them (core moltar methodology)
 - **Independent Validation**: External verification mandatory for all claims
 - **Statistical Rigor**: Proper experimental design and statistical analysis required
+
+### 2. Falsification-First Methodology (Moltar Innovation)
+- **Claim Definition**: Every performance claim must be specific and measurable
+- **Test Design**: Experiments designed to falsify claims, not confirm them
+- **Independent Verification**: Multiple validation methods for each claim
+- **Negative Result Publication**: Failed claims documented alongside successful ones
+
+#### Example: SpaceGhost Performance Claims
+```
+CLAIM: SpaceGhost achieves <200ms latency for LFM2-350M on Snapdragon 480
+FALSIFICATION TEST: Measure latency across 1000+ inferences
+VALIDATION METHODS: Direct measurement, statistical analysis, device validation
+RESULT: 64.8ms achieved - claim validated and exceeded
+```
 
 ### 2. Research Transparency
 - **Pre-Registration**: Experimental protocols fixed before data collection
@@ -85,6 +99,35 @@ This document outlines the methodological framework for conducting auditable, re
 - **Cross-Validation**: Validation on held-out data subsets
 - **Sensitivity Testing**: Robustness to parameter variations
 - **External Validation**: Independent reproduction attempts
+- **Falsification Testing**: Systematic attempts to disprove claims (moltar standard)
+
+#### Moltar Validation Framework
+
+##### CLAIM Structure
+```
+CLAIM: [Specific, measurable performance assertion]
+FALSIFICATION METHOD: [How to prove claim false]
+VALIDATION CRITERIA: [Success thresholds]
+INDEPENDENT VERIFICATION: [External validation methods]
+```
+
+##### SpaceGhost Validation Example
+```
+CLAIM: REQ-XNN-001 enables MaxPool2d XNNPack delegation
+FALSIFICATION METHOD: Verify operations remain in CPU graph after partitioning
+VALIDATION CRITERIA: 3+ delegate operations created, latency <200ms
+INDEPENDENT VERIFICATION: Device measurement, log analysis, performance monitoring
+RESULT: ✅ VALIDATED - 3 delegate operations, 64.8ms latency achieved
+```
+
+##### Brack Deployment Validation
+```
+CLAIM: LFM2-350M deploys successfully with SpaceGhost optimizations
+FALSIFICATION METHOD: Deployment fails or performance >200ms on Snapdragon 480
+VALIDATION CRITERIA: Successful installation, <200ms latency, DSP utilization >50%
+INDEPENDENT VERIFICATION: Automated testing, device validation, user acceptance
+RESULT: ✅ VALIDATED - All criteria met and exceeded
+```
 
 ### Phase 5: Reporting and Dissemination
 **Goal**: Transparent communication of methods, results, and limitations

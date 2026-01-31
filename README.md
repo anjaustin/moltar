@@ -167,6 +167,7 @@ See [CHANGELOG.md](CHANGELOG.md) for complete version history, breaking changes,
 - **[INSTALL.md](INSTALL.md)** - Complete installation and setup guide
 - **[API.md](API.md)** - API reference for all tools and interfaces
 - **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - Common issues and solutions
+- **[docs/TROUBLESHOOTING_GUIDE.md](docs/TROUBLESHOOTING_GUIDE.md)** - Comprehensive deployment troubleshooting
 - **[PERFORMANCE.md](PERFORMANCE.md)** - Performance benchmarks and optimization
 - **[DEVELOPMENT.md](DEVELOPMENT.md)** - Development workflow and guidelines
 - **[ROADMAP.md](ROADMAP.md)** - Project vision and future plans
@@ -180,6 +181,8 @@ See [CHANGELOG.md](CHANGELOG.md) for complete version history, breaking changes,
 - **[LICENSE](LICENSE)** - Research license terms and conditions
 - **[docs/README.md](docs/README.md)** - Documentation overview and guides
 - **[docs/methodology/RESEARCH_METHODOLOGY.md](docs/methodology/RESEARCH_METHODOLOGY.md)** - Research standards and validation frameworks
+- **[docs/SPACEGHOST_BRACK_INTEGRATION.md](docs/SPACEGHOST_BRACK_INTEGRATION.md)** - SpaceGhost + Brack integration guide
+- **[docs/LFN_DEPLOYMENT_GUIDE.md](docs/LFN_DEPLOYMENT_GUIDE.md)** - Complete LFN model deployment with SpaceGhost optimizations
 - **[scripts/README.md](scripts/README.md)** - Device connection and automation guides
 
 ### Generated Documentation
