@@ -1,0 +1,91 @@
+# CMake configuration for Snapdragon 480 optimizations in XNNPack
+# This file should be integrated into the main XNNPack CMakeLists.txt
+
+# Snapdragon 480 specific configuration
+if(ANDROID AND CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
+    message(STATUS "Enabling Snapdragon 480 optimizations")
+
+    # Enable dot product compilation
+    # Requires ARMv8.2-A with dot product support
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=armv8.2-a+dotprod")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=armv8.2-a+dotprod")
+    set(CMAKE_ASM_FLAGS "${CMAKE_ASM_FLAGS} -march=armv8.2-a+dotprod")
+
+    # Snapdragon-specific defines
+    add_definitions(-DXNN_ARCH_ARM64_DOTPROD=1)
+    add_definitions(-DSNAPDRAGON_480_OPTIMIZATIONS=1)
+    add_definitions(-DXNN_ENABLE_SNAPDRAGON_OPTIMIZATIONS=1)
+
+    # Include Snapdragon optimization headers
+    include_directories(${CMAKE_CURRENT_SOURCE_DIR}/kernels/snapdragon)
+    include_directories(${CMAKE_CURRENT_SOURCE_DIR}/snapdragon)
+
+    # Add Snapdragon optimization source files
+    set(XNNPACK_SRCS ${XNNPACK_SRCS}
+        ${CMAKE_CURRENT_SOURCE_DIR}/snapdragon_480_optimization.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/xnnpack_threadpool_snapdragon.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/cache_optimization_snapdragon.c
+    )
+
+    # Add Snapdragon-specific kernel files
+    set(XNNPACK_SRCS ${XNNPACK_SRCS}
+        ${CMAKE_CURRENT_SOURCE_DIR}/kernels/qs8_dotprod_snapdragon.S
+    )
+
+    # Enable assembly compilation
+    enable_language(ASM)
+
+    # Set assembly flags for Snapdragon
+    set(CMAKE_ASM_COMPILE_OBJECT
+        "<CMAKE_ASM_COMPILER> <DEFINES> <INCLUDES> <FLAGS> -o <OBJECT> <SOURCE>")
+
+    # Link against atomic operations (required for ARM64)
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -latomic")
+
+    # Performance monitoring (optional, for development)
+    option(XNNPACK_ENABLE_PERFORMANCE_COUNTERS "Enable performance counters" OFF)
+    if(XNNPACK_ENABLE_PERFORMANCE_COUNTERS)
+        add_definitions(-DXNNPACK_ENABLE_PERFORMANCE_COUNTERS=1)
+        # Additional performance monitoring libraries would be linked here
+    endif()
+
+elseif(ANDROID)
+    message(STATUS "Android platform detected, but not Snapdragon 480 - using generic optimizations")
+endif()
+
+# Runtime feature detection
+if(ANDROID)
+    # Always include runtime detection code
+    add_definitions(-DXNNPACK_ENABLE_RUNTIME_OPTIMIZATION=1)
+
+    # Add runtime optimization dispatcher
+    set(XNNPACK_SRCS ${XNNPACK_SRCS}
+        ${CMAKE_CURRENT_SOURCE_DIR}/runtime_optimizer.c
+    )
+endif()
+
+# Build optimization levels for Snapdragon
+if(SNAPDRAGON_480_OPTIMIZATIONS)
+    # Aggressive optimizations for Snapdragon 480
+    set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O3 -flto -fomit-frame-pointer")
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -flto -fomit-frame-pointer")
+
+    # Link-time optimization
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
+
+    # Snapdragon-specific tuning
+    add_definitions(-DSNAPDRAGON_TUNING=1)
+
+    # Disable debug features in release builds
+    add_definitions(-DNDEBUG=1)
+endif()
+
+# Installation of Snapdragon-specific headers
+if(SNAPDRAGON_480_OPTIMIZATIONS)
+    install(FILES
+        ${CMAKE_CURRENT_SOURCE_DIR}/snapdragon_480_optimization.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/cache_optimization_snapdragon.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/kernels/qs8_dotprod_snapdragon.h
+        DESTINATION include/xnnpack/snapdragon
+    )
+endif()
