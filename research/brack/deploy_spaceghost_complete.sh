@@ -104,7 +104,8 @@ deploy_optimization_files() {
 create_device_validation_script() {
     log_info "Creating device-side comprehensive validation script..."
 
-    $ADB shell cat > /data/local/tmp/spaceghost_complete/validate_spaceghost_complete.sh << 'EOF'
+    # Create validation script locally
+    cat > /tmp/validate_spaceghost_complete.sh << 'EOF'
 #!/system/bin/sh
 # Comprehensive SpaceGhost Validation Script
 # Tests all REQ-XNN-001, REQ-XNN-002, REQ-XNN-003 optimizations
@@ -304,7 +305,13 @@ echo ""
 echo "🎯 SpaceGhost Complete Validation Finished Successfully!"
 EOF
 
+    # Push script to device
+    $ADB push /tmp/validate_spaceghost_complete.sh /data/local/tmp/spaceghost_complete/validate_spaceghost_complete.sh
     $ADB shell chmod +x /data/local/tmp/spaceghost_complete/validate_spaceghost_complete.sh
+
+    # Clean up local temp file
+    rm -f /tmp/validate_spaceghost_complete.sh
+
     log_success "Device validation script created"
 }
 

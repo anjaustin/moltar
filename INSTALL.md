@@ -1,305 +1,452 @@
 # Installation Guide
 
-Complete installation and setup guide for the moltar research repository.
+Complete installation and setup instructions for the Moltar research platform.
 
-## Prerequisites
+## Table of Contents
 
-### System Requirements
-- **Operating System**: macOS 11.0+ (recommended), Linux, or Windows with WSL2
+- [System Requirements](#system-requirements)
+- [One-Click Installation](#one-click-installation)
+- [Manual Installation](#manual-installation)
+- [Device Setup](#device-setup)
+- [Verification](#verification)
+- [Troubleshooting](#troubleshooting)
+
+---
+
+## System Requirements
+
+### Minimum Requirements
+- **Operating System**: macOS 12+, Ubuntu 20.04+, Windows 10+
 - **RAM**: 8GB minimum, 16GB recommended
-- **Storage**: 10GB free space for tools and research data
+- **Storage**: 10GB free space
 - **Network**: Stable internet connection for model downloads
 
-### Required Software
-- **Git**: Version control system
-- **Python**: 3.8+ with pip package manager
-- **Android Studio**: For Android development (optional, but recommended)
-- **Android SDK/NDK**: Platform tools for device interaction
+### Recommended Requirements
+- **Operating System**: macOS 13+, Ubuntu 22.04+
+- **RAM**: 16GB+
+- **Storage**: 50GB+ SSD for model storage
+- **Network**: High-speed internet (100Mbps+) for large model downloads
 
-## Quick Installation
+### Device Requirements
+- **Motorola Device**: moto g power 5G or compatible Motorola device
+- **Android Version**: Android 12+ (API level 31+)
+- **Storage**: 4GB+ free space on device
+- **USB Debugging**: Must be enabled
 
-### One-Command Setup (Recommended)
+---
+
+## One-Click Installation
+
+### Automated Setup (Recommended)
 ```bash
-# Clone repository
-git clone https://github.com/anjaustin/moltar.git
+# Clone the repository
+git clone https://github.com/your-org/moltar.git
 cd moltar
 
-# Run automated setup
+# Run the one-click installer
 ./moltar_setup.sh
+
+# Follow the interactive prompts:
+# 1. Select installation type (Complete/Research/Minimal)
+# 2. Choose device type (Motorola/Generic Android)
+# 3. Grant USB permissions when prompted
+# 4. Wait for automated setup completion
 ```
 
-This will:
-- ✅ Install system dependencies
-- ✅ Set up Python environment
-- ✅ Configure Android development tools
-- ✅ Download and configure research frameworks
-- ✅ Validate installation
+**What gets installed:**
+- ✅ Python environment with dependencies
+- ✅ Android SDK and platform tools
+- ✅ Device drivers and USB configuration
+- ✅ Research directory structure
+- ✅ Basic AI models for testing
 
-### Manual Installation
-
-#### Step 1: Clone Repository
+### Quick Setup (For Experienced Users)
 ```bash
-git clone https://github.com/anjaustin/moltar.git
+# Minimal setup for existing environments
+./moltar_setup.sh --quick
+
+# Or use the command launcher
+./moltar setup --quick
+```
+
+---
+
+## Manual Installation
+
+### Step 1: Clone Repository
+```bash
+git clone https://github.com/your-org/moltar.git
 cd moltar
 ```
 
-#### Step 2: Install System Dependencies
+### Step 2: Install System Dependencies
+
+#### macOS
 ```bash
-# macOS with Homebrew
-brew install python@3.11 git android-platform-tools
+# Install Homebrew if not present
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
-# Ubuntu/Debian
-sudo apt update
-sudo apt install python3 python3-pip git android-tools-adb android-tools-fastboot
+# Install required packages
+brew install python@3.11 git cmake ninja
 
-# Windows (WSL2 recommended)
-# Install Windows Terminal, WSL2, then:
-sudo apt update
-sudo apt install python3 python3-pip git android-tools-adb android-tools-fastboot
+# Install Android platform tools
+brew install --cask android-platform-tools
 ```
 
-#### Step 3: Setup Python Environment
+#### Ubuntu/Debian
+```bash
+# Update package index
+sudo apt update
+
+# Install required packages
+sudo apt install -y python3 python3-pip git cmake ninja-build \
+                    android-tools-adb android-tools-fastboot
+
+# Install Python virtual environment
+sudo apt install -y python3-venv
+```
+
+#### Windows
+```bash
+# Install Chocolatey if not present
+# Download from https://chocolatey.org/
+
+# Install required packages
+choco install python git cmake ninja androidstudio
+
+# Add to PATH:
+# - Python Scripts directory
+# - Android SDK platform-tools
+```
+
+### Step 3: Python Environment Setup
 ```bash
 # Create virtual environment
-python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+python3 -m venv moltar_env
 
-# Install dependencies
+# Activate environment
+source moltar_env/bin/activate  # Linux/macOS
+# moltar_env\Scripts\activate   # Windows
+
+# Install Python dependencies
 pip install -r requirements.txt
+
+# Install additional research dependencies
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+pip install transformers accelerate huggingface-hub
+pip install numpy pandas matplotlib seaborn
 ```
 
-#### Step 4: Android Development Setup (Optional)
+### Step 4: Android Development Setup
+
+#### Install Android SDK
 ```bash
-# Install Android Studio
-# Download from: https://developer.android.com/studio
+# Download Android Studio
+# https://developer.android.com/studio
 
-# Or install command-line tools
-# Download SDK from: https://developer.android.com/studio#command-line-tools-only
-# Extract to ~/Android/sdk
-export ANDROID_HOME=~/Android/sdk
-export PATH=$PATH:$ANDROID_HOME/tools:$ANDROID_HOME/platform-tools
+# Or install command-line tools only
+# Linux/macOS:
+wget https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip
+unzip commandlinetools-linux-10406996_latest.zip
+mkdir -p ~/Android/Sdk/cmdline-tools/latest
+mv cmdline-tools/* ~/Android/Sdk/cmdline-tools/latest/
+
+# Windows: Download from Android developer site
 ```
 
-## Component-Specific Installation
-
-### Research Frameworks
+#### Configure Environment Variables
 ```bash
-# Install research methodology tools
-pip install jupyterlab pandas numpy scipy matplotlib
+# Add to your shell profile (~/.bashrc, ~/.zshrc, etc.)
+export ANDROID_HOME=$HOME/Android/Sdk
+export PATH=$PATH:$ANDROID_HOME/emulator
+export PATH=$PATH:$ANDROID_HOME/platform-tools
+export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin
 
-# Install Android research tools
-pip install ppadb pure-python-adb
+# Reload profile
+source ~/.bashrc  # or ~/.zshrc
 ```
 
-### Brack LFN Deployment
+#### Accept Android SDK Licenses
 ```bash
-cd research/brack
-
-# Setup environment
-./scripts/setup_environment.sh
-
-# Download LFN model
-./scripts/download_lfm_model.sh LiquidAI/LFM2-350M
+# Accept all licenses
+yes | sdkmanager --licenses
 ```
+
+### Step 5: Device Connection Setup
+
+#### Enable USB Debugging on Device
+1. Go to **Settings > About Phone**
+2. Tap **Build Number** 7 times to enable Developer Options
+3. Go to **Settings > Developer Options**
+4. Enable **USB Debugging**
+5. Enable **OEM Unlocking** (optional, for advanced research)
+
+#### Configure USB Connection
+```bash
+# List connected devices
+adb devices
+
+# If device not found, try:
+# 1. Different USB cable
+# 2. Different USB port
+# 3. Restart device and computer
+# 4. Check USB debugging authorization on device
+
+# Authorize computer (when prompted on device)
+adb devices  # Should now show device as authorized
+```
+
+### Step 6: Research Environment Setup
+```bash
+# Initialize research directories
+./scripts/setup_research_environment.sh
+
+# Configure device for research
+./scripts/device/setup_research_device.sh
+
+# Test complete setup
+./scripts/test_setup.sh
+```
+
+---
 
 ## Device Setup
 
 ### Motorola Device Preparation
-```bash
-# Connect device via USB
-./scripts/device/connect_device.sh
 
-# Setup research environment on device
-./scripts/device/setup_research_device.sh
+#### 1. Initial Device Check
+```bash
+# Get device information
+adb shell getprop ro.product.model
+adb shell getprop ro.build.version.release
+adb shell getprop ro.product.cpu.abi
+
+# Expected output for moto g power 5G:
+# moto g power 5G - 2023
+# 14
+# arm64-v8a
 ```
 
-### USB Debugging Setup
-1. Enable Developer Options on device
-2. Enable USB Debugging
-3. Accept RSA key authorization
-4. Verify connection: `adb devices`
+#### 2. Enable Advanced Features (Optional)
+```bash
+# Enable wireless ADB (for cable-free development)
+adb tcpip 5555
+
+# Enable root access if available (advanced users only)
+# WARNING: Root access can void warranty and cause issues
+./scripts/device/enable_root.sh
+```
+
+#### 3. Storage Preparation
+```bash
+# Check available storage
+adb shell df -h /data
+
+# Clear cache if needed
+adb shell pm clear com.android.providers.downloads
+adb shell rm -rf /data/local/tmp/*
+```
+
+### Model and Data Setup
+
+#### Download Base Models
+```bash
+# Download test model (fast, for verification)
+./research/brack/scripts/download_lfm_model.sh LiquidAI/LFM2-350M
+
+# Download recommended model (balanced performance)
+./research/brack/scripts/download_lfm_model.sh LiquidAI/LFM2-700M
+```
+
+#### Configure Model Storage
+```bash
+# Set up model directories
+./scripts/setup_model_storage.sh
+
+# Verify model integrity
+./scripts/verify_models.sh
+```
+
+---
 
 ## Verification
 
-### System Verification
+### Basic Installation Test
 ```bash
-# Check Python environment
-python3 --version
-pip --version
+# Test command launcher
+./moltar --version
+./moltar help
 
-# Check Android tools
-adb version
-fastboot --version
-
-# Check Git
-git --version
+# Expected output:
+# Moltar Research Platform v1.0.0
+# Available commands: setup, device, research, help
 ```
 
-### Repository Verification
+### Device Connection Test
 ```bash
-# Check repository status
-git status
+# Test device connection
+./moltar device info
 
-# Run basic tests
-./moltar_setup.sh --help
-
-# Check documentation
-ls *.md docs/
+# Expected output includes:
+# 📱 Device: [Your Motorola model]
+# 🔧 Android: [Version]
+# ✅ Connection: Ready for research
 ```
 
-### Device Verification
+### AI Functionality Test
 ```bash
-# Check device connection
-./scripts/device/connect_device.sh check
+# Test basic AI functionality
+./research/brack/scripts/test_lfn350_philosophical.sh
 
-# Verify research environment
-./scripts/device/setup_research_device.sh verify
+# Expected output:
+# ✅ Model loaded successfully
+# 🤖 AI Response: [Philosophical analysis]
+# 📊 Performance: [Timing metrics]
 ```
+
+### Full System Test
+```bash
+# Run comprehensive test suite
+./scripts/test_full_system.sh
+
+# Tests include:
+# - Environment configuration
+# - Device communication
+# - Model loading and inference
+# - Performance benchmarks
+# - Research environment validation
+```
+
+---
 
 ## Troubleshooting
 
 ### Common Installation Issues
 
-#### Python Virtual Environment Issues
+#### Python Environment Issues
 ```bash
-# If venv creation fails
-python3 -m pip install --user virtualenv
-python3 -m virtualenv venv
+# If pip install fails
+pip install --upgrade pip setuptools wheel
 
-# Activate environment
-source venv/bin/activate
+# If virtual environment issues
+python3 -m venv --clear moltar_env
+source moltar_env/bin/activate
+pip install -r requirements.txt
 ```
 
 #### Android SDK Issues
 ```bash
-# If Android tools not found
-export ANDROID_HOME=~/Android/Sdk
-echo 'export ANDROID_HOME=~/Android/Sdk' >> ~/.bashrc
-source ~/.bashrc
+# If SDK tools not found
+sdkmanager "platform-tools" "platforms;android-33"
 
-# Add to PATH
-export PATH=$PATH:$ANDROID_HOME/tools:$ANDROID_HOME/platform-tools
+# If ADB not working
+adb kill-server
+adb start-server
+adb devices
 ```
 
 #### Device Connection Issues
 ```bash
-# Restart ADB
-adb kill-server
-adb start-server
+# If device not recognized
+# 1. Check USB cable and port
+# 2. Restart device and computer
+# 3. Revoke USB debugging authorizations
+# 4. Re-enable USB debugging on device
 
-# Check USB connection
-lsusb  # Linux
-system_profiler SPUSBDataType  # macOS
-
-# Try different USB port/cable
-# Reboot device and computer
+# Check device state
+adb devices  # Should show device with authorization
 ```
 
 #### Permission Issues
 ```bash
-# macOS ADB permissions
-sudo chown -R $USER:admin /usr/local/bin/adb
-sudo chmod +x /usr/local/bin/adb
+# Fix script permissions
+chmod +x *.sh
+chmod +x scripts/*.sh
+chmod +x research/brack/scripts/*.sh
 
-# Linux udev rules for Android devices
-echo 'SUBSYSTEM=="usb", ATTR{idVendor}=="22b8", MODE="0666", GROUP="plugdev"' | sudo tee /etc/udev/rules.d/51-android.rules
-sudo udevadm control --reload-rules
-sudo udevadm trigger
+# Fix directory permissions
+find . -type d -exec chmod 755 {} \;
+find . -name "*.sh" -exec chmod 755 {} \;
 ```
 
-## Environment Configuration
+### Getting Help
 
-### Shell Configuration
-Add to `~/.bashrc`, `~/.zshrc`, or `~/.profile`:
+#### Diagnostic Tools
 ```bash
-# Moltar environment
-export MOLTA_ROOT="/path/to/moltar"
-export PATH="$PATH:$MOLTA_ROOT"
+# Run installation diagnostics
+./scripts/diagnose_installation.sh
 
-# Python virtual environment
-export VIRTUAL_ENV="$MOLTA_ROOT/venv"
-export PATH="$VIRTUAL_ENV/bin:$PATH"
-
-# Android development
-export ANDROID_HOME="$HOME/Android/Sdk"
-export PATH="$PATH:$ANDROID_HOME/tools:$ANDROID_HOME/platform-tools"
+# Generate troubleshooting report
+./scripts/generate_troubleshoot_report.sh
 ```
 
-### IDE Configuration
-
-#### VS Code
-```json
-{
-  "python.defaultInterpreterPath": "./venv/bin/python",
-  "python.terminal.activateEnvironment": true,
-  "android.sdkPath": "~/Android/Sdk"
-}
-```
-
-#### Android Studio
-- Import `research/brack/src/` as Android project
-- Set SDK location in preferences
-- Install required SDK components
-
-## Updating Installation
-
-### Update Repository
-```bash
-git pull origin main
-```
-
-### Update Dependencies
-```bash
-# Update Python packages
-pip install -r requirements.txt --upgrade
-
-# Update Android SDK
-sdkmanager --update
-```
-
-### Update Device Environment
-```bash
-# Update device research environment
-./scripts/device/setup_research_device.sh
-```
-
-## Advanced Configuration
-
-### Custom Model Installation
-```bash
-# Install custom LFN models
-cd research/brack
-./scripts/download_lfm_model.sh your-custom-model
-
-# Update configuration
-nano config/lfm_config.json
-```
-
-### Development Environment
-```bash
-# Enable development mode
-export MOLTA_DEV=true
-
-# Enable verbose logging
-export MOLTA_LOG_LEVEL=DEBUG
-
-# Custom research directories
-export MOLTA_DATA_DIR="/custom/data/path"
-```
-
-## Getting Help
-
-### Documentation Resources
-- **Main Documentation**: `README.md`
-- **Research Methodology**: `docs/methodology/RESEARCH_METHODOLOGY.md`
-- **Brack Deployment**: `research/brack/docs/DEPLOYMENT_GUIDE.md`
-- **Troubleshooting**: Check logs in `logs/` directory
-
-### Community Support
-- **Issues**: GitHub Issues for bugs and feature requests
-- **Discussions**: GitHub Discussions for general questions
-- **Documentation**: Wiki pages for detailed guides
+#### Support Resources
+- **Quick Start Guide**: `QUICK_START.md`
+- **Troubleshooting**: `docs/troubleshooting.md`
+- **Device Compatibility**: `HARDWARE_COMPATIBILITY.md`
+- **Community Support**: GitHub Issues
 
 ---
 
-*This installation guide ensures smooth setup of the moltar research environment across different systems and use cases.*
+## Post-Installation
+
+### Environment Activation
+```bash
+# Always activate the environment before use
+cd moltar
+source moltar_env/bin/activate
+./moltar help
+```
+
+### Regular Maintenance
+```bash
+# Update the platform
+./moltar update
+
+# Clean temporary files
+./moltar clean
+
+# Check system health
+./moltar health
+```
+
+### Backup and Recovery
+```bash
+# Backup your setup
+./scripts/backup_setup.sh
+
+# Restore from backup
+./scripts/restore_setup.sh
+```
+
+---
+
+## Advanced Configuration
+
+### Custom Python Environment
+```bash
+# Use conda instead of venv
+conda create -n moltar python=3.11
+conda activate moltar
+pip install -r requirements.txt
+```
+
+### Custom Android SDK Location
+```bash
+# Use custom SDK location
+export ANDROID_HOME=/opt/android-sdk
+export PATH=$PATH:$ANDROID_HOME/platform-tools
+```
+
+### Development Environment Setup
+```bash
+# Set up for development
+./scripts/setup_development_environment.sh
+
+# Install development tools
+pip install pytest black flake8 mypy
+```
+
+---
+
+*This installation provides a complete research environment for AI on Motorola devices. For issues not covered here, see the troubleshooting guide or open a GitHub issue.*

@@ -1,338 +1,453 @@
-# Architecture Overview
+# System Architecture
 
-## System Architecture
+Complete architectural overview of the Moltar research platform and its components.
 
-Moltar is designed as a modular, research-focused platform for security engineering with embedded systems. This document outlines the architectural principles, components, and design decisions that guide the system's development.
+## Table of Contents
 
-## Core Principles
+- [Overview](#overview)
+- [Core Architecture](#core-architecture)
+- [Component Architecture](#component-architecture)
+- [Data Flow](#data-flow)
+- [Deployment Architecture](#deployment-architecture)
+- [Security Architecture](#security-architecture)
+- [Performance Architecture](#performance-architecture)
 
-### 1. Research-First Design
-- **Scientific Methodology**: All features support rigorous research workflows
-- **Reproducibility**: Experiments can be exactly replicated
-- **Auditability**: Complete record of research activities
-- **Falsification Support**: Built-in hypothesis testing capabilities
+---
 
-### 2. Modularity
-- **Component Isolation**: Independent, swappable components
-- **Interface Standardization**: Well-defined APIs between components
-- **Plugin Architecture**: Extensible through plugins and modules
-- **Dependency Management**: Clear separation of concerns
+## Overview
 
-### 3. Security by Design
-- **Defense in Depth**: Multiple security layers
-- **Least Privilege**: Minimal required permissions
-- **Secure Defaults**: Conservative security settings
-- **Audit Logging**: Comprehensive activity tracking
+Moltar is a comprehensive research platform for deploying and studying AI models on embedded devices, specifically optimized for Motorola mobile hardware.
 
-## High-Level Architecture
+### Design Principles
+
+- **Research-First**: Everything designed around rigorous scientific methodology
+- **Device-Native**: Optimized for mobile hardware constraints
+- **Extensible**: Modular architecture for easy expansion
+- **Auditable**: Complete traceability and reproducibility
+
+### Key Characteristics
+
+- **Cross-Platform**: Works on multiple Motorola devices
+- **Model Agnostic**: Supports various AI model formats
+- **Performance Optimized**: Hardware acceleration and optimization
+- **Research Focused**: Built-in experimentation and measurement tools
+
+---
+
+## Core Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    MOLTA R RESEARCH PLATFORM                  │
+│                    Moltar Research Platform                 │
+├─────────────────────────────────────────────────────────────┤
+│  ┌─────────────┐ ┌─────────────┐ ┌─────────────────────┐    │
+│  │  Research   │ │   Device    │ │   Model & Data      │    │
+│  │ Framework   │ │ Management  │ │   Management        │    │
+│  └─────────────┘ └─────────────┘ └─────────────────────┘    │
+├─────────────────────────────────────────────────────────────┤
+│  ┌─────────────┐ ┌─────────────┐ ┌─────────────────────┐    │
+│  │ SpaceGhost  │ │   Brack     │ │  Core Services      │    │
+│  │ (Optim.)    │ │  (Deploy)   │ │                     │    │
+│  └─────────────┘ └─────────────┘ └─────────────────────┘    │
 ├─────────────────────────────────────────────────────────────┤
 │  ┌─────────────────────────────────────────────────────┐    │
-│  │            RESEARCH APPLICATIONS                   │    │
-│  │  • Brack LFN Chat                                 │    │
-│  │  • Security Analysis Tools                         │    │
-│  │  • Performance Benchmarking                        │    │
-│  └─────────────────────────────────────────────────────┘    │
-├─────────────────────────────────────────────────────────────┤
-│  ┌─────────────────────────────────────────────────────┐    │
-│  │            RESEARCH FRAMEWORK                       │    │
-│  │  • Methodology Engine                               │    │
-│  │  • Falsification Testing                            │    │
-│  │  • Performance Validation                           │    │
-│  │  • Audit & Logging                                  │    │
-│  └─────────────────────────────────────────────────────┘    │
-├─────────────────────────────────────────────────────────────┤
-│  ┌─────────────────────────────────────────────────────┐    │
-│  │            DEVICE ABSTRACTION LAYER                 │    │
-│  │  • Motorola/Snapdragon Support                      │    │
-│  │  • Android Platform Integration                     │    │
-│  │  • Hardware Acceleration                            │    │
-│  │  • Device Management                                │    │
-│  └─────────────────────────────────────────────────────┘    │
-├─────────────────────────────────────────────────────────────┤
-│  ┌─────────────────────────────────────────────────────┐    │
-│  │            CORE INFRASTRUCTURE                      │    │
-│  │  • ExecuTorch Runtime                               │    │
-│  │  • Model Management                                 │    │
-│  │  • Data Pipeline                                    │    │
-│  │  • Configuration System                             │    │
-│  └─────────────────────────────────────────────────────┘    │
-├─────────────────────────────────────────────────────────────┤
-│  ┌─────────────────────────────────────────────────────┐    │
-│  │            DEVELOPMENT & DEPLOYMENT                 │    │
-│  │  • Build System                                     │    │
-│  │  • Testing Framework                                │    │
-│  │  • CI/CD Pipeline                                   │    │
-│  │  • Documentation                                     │    │
+│  │              Motorola Device Layer                  │    │
 │  └─────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-## Component Architecture
+### Architectural Layers
 
-### Research Applications Layer
+#### 1. Research Framework Layer
+- **Purpose**: Provides scientific methodology and research tools
+- **Components**: Experiment design, data collection, statistical analysis
+- **Key Features**: Falsification framework, reproducible protocols
 
-#### Brack LFN Chat Application
-**Purpose**: End-to-end Liquid AI model deployment and testing
+#### 2. Device Management Layer
+- **Purpose**: Hardware abstraction and device control
+- **Components**: ADB integration, device configuration, monitoring
+- **Key Features**: Cross-device compatibility, automated setup
 
-**Components**:
-- **MainActivity**: Chat interface and user interaction
-- **LFM Integration**: ExecuTorch-based model inference
-- **Performance Monitoring**: Real-time metrics collection
-- **Configuration Management**: Runtime parameter adjustment
+#### 3. Model & Data Management Layer
+- **Purpose**: AI model lifecycle and data handling
+- **Components**: Model storage, conversion, deployment
+- **Key Features**: Multiple format support, optimization pipelines
 
-**Architecture**:
-```
-User Interface (Kotlin)
-    ↓
-LFM Controller (Kotlin + JNI)
-    ↓
-ExecuTorch Runtime (C++)
-    ↓
-LFM2-350M Model (Optimized for Snapdragon)
-```
+#### 4. Optimization Layer (SpaceGhost)
+- **Purpose**: Performance enhancement and hardware acceleration
+- **Components**: ExecuTorch patches, DSP optimization, memory management
+- **Key Features**: Hardware-specific tuning, real-time optimization
 
-### Research Framework Layer
+#### 5. Deployment Layer (Brack)
+- **Purpose**: Model deployment and inference execution
+- **Components**: Runtime engines, Android integration, monitoring
+- **Key Features**: Real-time inference, performance monitoring
 
-#### Methodology Engine
-**Purpose**: Enforce scientific research standards
+#### 6. Core Services Layer
+- **Purpose**: Platform infrastructure and utilities
+- **Components**: Configuration management, logging, error handling
+- **Key Features**: Service orchestration, health monitoring
 
-**Components**:
-- **Protocol Registration**: Pre-experiment documentation
-- **Hypothesis Testing**: Automated falsification testing
-- **Statistical Analysis**: Performance validation
-- **Audit Trail**: Complete research activity logging
-
-#### Falsification Testing Engine
-**Purpose**: Systematically test and disprove claims
-
-**Components**:
-- **Claim Definition**: Structured hypothesis specification
-- **Test Generation**: Automated test case creation
-- **Evidence Collection**: Metric gathering and analysis
-- **Result Validation**: Statistical significance testing
-
-### Device Abstraction Layer
-
-#### Motorola/Snapdragon Support
-**Purpose**: Hardware-specific optimizations and management
-
-**Components**:
-- **Device Detection**: Automatic device identification
-- **Hardware Acceleration**: DSP/GPU utilization
-- **Power Management**: Battery optimization
-- **Security Features**: Root access and permission management
-
-#### Android Platform Integration
-**Purpose**: Seamless Android ecosystem integration
-
-**Components**:
-- **ADB/Fastboot Interface**: Device communication
-- **Android Permissions**: Runtime permission management
-- **Platform APIs**: Access to Android system features
-- **Compatibility Layer**: Support for multiple Android versions
-
-### Core Infrastructure Layer
-
-#### ExecuTorch Runtime
-**Purpose**: High-performance on-device AI inference
-
-**Components**:
-- **Model Loader**: PTE file loading and validation
-- **Inference Engine**: Optimized computation kernels
-- **Memory Management**: Efficient resource allocation
-- **Backend Selection**: CPU/GPU/DSP dispatch
-
-#### Model Management System
-**Purpose**: AI model lifecycle management
-
-**Components**:
-- **Model Registry**: Available model catalog
-- **Download Manager**: Automated model acquisition
-- **Version Control**: Model versioning and updates
-- **Optimization Pipeline**: Device-specific model optimization
-
-#### Data Pipeline
-**Purpose**: Research data collection and processing
-
-**Components**:
-- **Data Collection**: Performance metrics gathering
-- **Preprocessing**: Data cleaning and normalization
-- **Storage**: Efficient data persistence
-- **Analysis**: Statistical processing and visualization
-
-### Development & Deployment Layer
-
-#### Build System
-**Purpose**: Automated application compilation and packaging
-
-**Components**:
-- **Gradle Integration**: Android build automation
-- **Cross-Compilation**: Native code compilation
-- **Asset Management**: Model and resource bundling
-- **Release Management**: Versioned artifact generation
-
-#### Testing Framework
-**Purpose**: Comprehensive quality assurance
-
-**Components**:
-- **Unit Testing**: Component-level validation
-- **Integration Testing**: System-level verification
-- **Performance Testing**: Benchmarking and profiling
-- **Device Testing**: Real hardware validation
-
-## Data Flow Architecture
-
-### Research Workflow
-```
-Research Question
-    ↓
-Hypothesis Formation
-    ↓
-Experimental Design
-    ↓
-Protocol Registration
-    ↓
-Data Collection
-    ↓
-Analysis & Validation
-    ↓
-Results & Publication
-```
-
-### Application Data Flow
-```
-User Input
-    ↓
-UI Processing (Kotlin)
-    ↓
-JNI Bridge
-    ↓
-Native Inference (C++)
-    ↓
-ExecuTorch Runtime
-    ↓
-AI Model (LFM)
-    ↓
-Result Processing
-    ↓
-UI Update
-```
-
-### Performance Monitoring Flow
-```
-System Metrics
-    ↓
-Collection Agents
-    ↓
-Preprocessing Pipeline
-    ↓
-Statistical Analysis
-    ↓
-Visualization/Dashboard
-    ↓
-Research Insights
-```
-
-## Security Architecture
-
-### Defense in Depth
-- **Application Layer**: Input validation and sanitization
-- **Runtime Layer**: Memory protection and bounds checking
-- **System Layer**: Permission management and isolation
-- **Network Layer**: Encrypted communication channels
-
-### Trust Boundaries
-- **User Space**: Untrusted user inputs
-- **Application Space**: Trusted application logic
-- **Kernel Space**: Trusted system operations
-- **Hardware Space**: Trusted hardware operations
-
-### Secure Communication
-- **Device Communication**: ADB over USB with authorization
-- **Data Transmission**: Encrypted channels for sensitive data
-- **API Access**: Token-based authentication
-- **Audit Logging**: Tamper-evident activity logs
-
-## Performance Architecture
-
-### Optimization Strategies
-- **Hardware Acceleration**: DSP/GPU offloading
-- **Memory Optimization**: Efficient data structures and caching
-- **Power Management**: Battery-aware operation
-- **Parallel Processing**: Multi-core utilization
-
-### Scalability Considerations
-- **Model Size**: Support for various model sizes and quantization
-- **Batch Processing**: Efficient handling of multiple requests
-- **Resource Limits**: Configurable resource constraints
-- **Adaptive Scaling**: Dynamic performance adjustment
-
-## Deployment Architecture
-
-### Development Environment
-- **Local Development**: Full development toolchain
-- **Testing Environment**: Isolated testing infrastructure
-- **CI/CD Pipeline**: Automated build and test execution
-- **Staging Environment**: Pre-production validation
-
-### Production Deployment
-- **Device Installation**: Automated APK deployment
-- **Model Distribution**: Secure model file delivery
-- **Configuration Management**: Runtime parameter adjustment
-- **Monitoring Setup**: Production performance tracking
-
-## Extensibility Architecture
-
-### Plugin System
-- **Interface Definition**: Standardized plugin APIs
-- **Discovery Mechanism**: Automatic plugin loading
-- **Version Compatibility**: Plugin version management
-- **Security Validation**: Plugin integrity checking
-
-### Module System
-- **Component Isolation**: Independent module operation
-- **Dependency Resolution**: Automatic dependency management
-- **Update Mechanism**: Module version updates
-- **Configuration**: Module-specific settings
-
-## Monitoring and Observability
-
-### Metrics Collection
-- **Performance Metrics**: Latency, throughput, resource usage
-- **Error Metrics**: Failure rates and error types
-- **Usage Metrics**: Feature utilization and user behavior
-- **System Metrics**: Hardware and platform statistics
-
-### Logging Architecture
-- **Structured Logging**: Consistent log format across components
-- **Log Levels**: DEBUG, INFO, WARNING, ERROR, CRITICAL
-- **Log Aggregation**: Centralized log collection and analysis
-- **Audit Trail**: Tamper-evident activity logging
-
-### Alerting System
-- **Threshold Monitoring**: Automatic anomaly detection
-- **Escalation Policies**: Progressive alert severity
-- **Automated Response**: Triggered remediation actions
-- **Human Oversight**: Manual intervention capabilities
-
-## Future Architecture Considerations
-
-### Distributed Research
-- **Multi-Device Coordination**: Synchronized research across devices
-- **Cloud Integration**: Hybrid local-cloud processing
-- **Federated Learning**: Privacy-preserving collaborative research
-- **Global Synchronization**: Worldwide research coordination
-
-### Advanced AI Integration
-- **Multi-Modal Models**: Vision, audio, and text processing
-- **Real-time Adaptation**: Dynamic model adjustment
-- **Meta-Learning**: Learning to learn capabilities
-- **Explainable AI**: Interpretable research results
+#### 7. Device Layer
+- **Purpose**: Physical hardware interface
+- **Components**: Motorola SoC, Android OS, device sensors
+- **Key Features**: Hardware acceleration, power management
 
 ---
 
-*This architecture provides a solid foundation for rigorous security research while maintaining flexibility for future enhancements and community contributions.*
+## Component Architecture
+
+### Research Framework Components
+
+```
+Research Framework
+├── Methodology Engine
+│   ├── Experiment Designer
+│   ├── Protocol Validator
+│   ├── Statistical Analyzer
+│   └── Report Generator
+├── Data Collection System
+│   ├── Metric Collectors
+│   ├── Log Aggregators
+│   └── Data Validators
+└── Quality Assurance
+    ├── Test Frameworks
+    ├── Validation Suites
+    └── Compliance Checkers
+```
+
+### Device Management Components
+
+```
+Device Management
+├── Connection Manager
+│   ├── ADB Interface
+│   ├── USB Handler
+│   └── Network Bridge
+├── Configuration System
+│   ├── Device Profiles
+│   ├── Capability Detection
+│   └── Parameter Optimization
+└── Monitoring System
+    ├── Performance Trackers
+    ├── Health Checkers
+    └── Alert Managers
+```
+
+### Model Management Components
+
+```
+Model Management
+├── Model Registry
+│   ├── Format Handlers
+│   ├── Version Control
+│   └── Metadata Store
+├── Conversion Pipeline
+│   ├── Format Converters
+│   ├── Optimization Passes
+│   └── Validation Checks
+└── Deployment System
+    ├── Runtime Selectors
+    ├── Resource Allocators
+    └── Lifecycle Managers
+```
+
+---
+
+## Data Flow
+
+### Research Workflow Data Flow
+
+```
+Research Question
+        ↓
+Hypothesis Formation
+        ↓
+Experimental Design
+        ↓
+Protocol Registration
+        ↓
+Data Collection
+        ↓
+Statistical Analysis
+        ↓
+Results Validation
+        ↓
+Publication/Archival
+```
+
+### Model Deployment Data Flow
+
+```
+Model Source (HuggingFace)
+        ↓
+Model Download & Validation
+        ↓
+Format Conversion (GGUF/PTE)
+        ↓
+Optimization (SpaceGhost)
+        ↓
+Deployment Package Creation
+        ↓
+Device Transfer (ADB)
+        ↓
+Runtime Loading (Brack)
+        ↓
+Inference Execution
+        ↓
+Performance Monitoring
+        ↓
+Results Collection
+```
+
+### Device Interaction Data Flow
+
+```
+Host Command
+        ↓
+ADB Transport Layer
+        ↓
+Android Shell/Command Processor
+        ↓
+Device System Calls
+        ↓
+Hardware Abstraction Layer
+        ↓
+SoC Components (CPU/GPU/DSP)
+        ↓
+Physical Hardware
+```
+
+---
+
+## Deployment Architecture
+
+### Single Device Deployment
+
+```
+Host Machine (macOS/Linux/Windows)
+    ├── Development Environment
+    │   ├── Python Runtime
+    │   ├── Android SDK
+    │   └── Research Tools
+    └── Build System
+        ├── Model Converters
+        ├── Optimization Tools
+        └── Package Builders
+
+    ↕️ ADB Connection
+
+Motorola Device (Android)
+    ├── System Layer
+    │   ├── Android OS
+    │   ├── Hardware Abstraction
+    │   └── System Services
+    └── Research Layer
+        ├── Runtime Engines
+        │   ├── ExecuTorch
+        │   ├── GGUF Runtime
+        │   └── Custom Kernels
+        └── Research Applications
+            ├── Brack (Deployment)
+            ├── SpaceGhost (Optimization)
+            └── Monitoring Tools
+```
+
+### Multi-Device Research Setup
+
+```
+Research Lab Network
+    ├── Host Machines (Development)
+    │   ├── Build Servers
+    │   ├── Test Automation
+    │   └── Data Analysis
+    ├── Device Farm
+    │   ├── Motorola Devices
+    │   │   ├── moto g power 5G (Primary)
+    │   │   ├── moto g stylus (Secondary)
+    │   │   └── Other Motorola models
+    │   └── Reference Devices
+    │       ├── Snapdragon 480 reference
+    │       └── MediaTek reference
+    └── Data Infrastructure
+        ├── Result Databases
+        ├── Log Aggregation
+        └── Performance Analytics
+```
+
+---
+
+## Security Architecture
+
+### Research Data Security
+
+```
+Data Security Layers
+├── Access Control
+│   ├── User Authentication
+│   ├── Permission Levels
+│   └── Audit Logging
+├── Data Protection
+│   ├── Encryption at Rest
+│   ├── Transport Security
+│   └── Secure Deletion
+└── Compliance Framework
+    ├── Research Ethics
+    ├── Data Privacy
+    └── Regulatory Compliance
+```
+
+### Device Security
+
+```
+Device Security Measures
+├── Connection Security
+│   ├── ADB Authentication
+│   ├── USB Verification
+│   └── Network Encryption
+├── Runtime Security
+│   ├── Sandboxing
+│   ├── Resource Limits
+│   └── Crash Protection
+└── Research Security
+    ├── Experiment Isolation
+    ├── Data Containment
+    └── Incident Response
+```
+
+---
+
+## Performance Architecture
+
+### Hardware Acceleration Architecture
+
+```
+Performance Optimization Stack
+├── Application Layer
+│   ├── Model Selection
+│   ├── Runtime Configuration
+│   └── Workload Optimization
+├── Runtime Layer
+│   ├── ExecuTorch Engine
+│   ├── GGUF Runtime
+│   └── Custom Kernels
+├── System Layer
+│   ├── Android Performance APIs
+│   ├── Hardware Abstraction
+│   └── Power Management
+└── Hardware Layer
+    ├── MediaTek MT6855V
+    │   ├── 8x ARM Cortex-A55 CPU
+    │   ├── ARM Mali-G52 GPU
+    │   ├── AI Processing Unit
+    │   └── LPDDR4X Memory
+    └── Snapdragon 480 (Target)
+        ├── 8x Kryo 460 CPU
+        ├── Adreno 619 GPU
+        ├── Hexagon 686 DSP
+        └── LPDDR4X Memory
+```
+
+### Memory Management Architecture
+
+```
+Memory Management System
+├── Application Memory
+│   ├── Model Storage
+│   ├── Runtime Buffers
+│   └── Working Memory
+├── System Memory
+│   ├── Android System
+│   ├── Background Services
+│   └── Cache Management
+└── Optimization Strategies
+    ├── Memory Pooling
+    ├── Garbage Collection
+    ├── Memory Mapping
+    └── Compression Techniques
+```
+
+### Performance Monitoring Architecture
+
+```
+Monitoring & Analytics
+├── Real-time Metrics
+│   ├── Latency Tracking
+│   ├── Memory Usage
+│   ├── CPU Utilization
+│   └── Battery Consumption
+├── Performance Profiling
+│   ├── Hardware Counters
+│   ├── Software Instrumentation
+│   └── Benchmark Suites
+└── Analytics Pipeline
+    ├── Data Collection
+    ├── Statistical Analysis
+    ├── Visualization Tools
+    └── Report Generation
+```
+
+---
+
+## Component Interaction Diagrams
+
+### Model Deployment Sequence
+
+```mermaid
+sequenceDiagram
+    participant Host
+    participant ADB
+    participant Device
+    participant Runtime
+
+    Host->>Host: Download model
+    Host->>Host: Convert/optimize
+    Host->>ADB: Push model package
+    ADB->>Device: Transfer files
+    Device->>Device: Extract package
+    Device->>Runtime: Load model
+    Runtime->>Device: Model ready
+    Device->>ADB: Confirmation
+    ADB->>Host: Success notification
+```
+
+### Research Experiment Flow
+
+```mermaid
+flowchart TD
+    A[Research Question] --> B[Hypothesis]
+    B --> C[Experimental Design]
+    C --> D[Protocol Registration]
+    D --> E[Environment Setup]
+    E --> F[Data Collection]
+    F --> G[Statistical Analysis]
+    G --> H[Results Validation]
+    H --> I{Passed?}
+    I -->|Yes| J[Publication]
+    I -->|No| K[Falsification]
+    K --> L[New Hypothesis]
+    L --> B
+```
+
+---
+
+## Scalability Considerations
+
+### Horizontal Scaling
+- **Device Pools**: Multiple Motorola devices for parallel testing
+- **Distributed Computing**: Cross-device model training and evaluation
+- **Load Balancing**: Automatic workload distribution across available hardware
+
+### Vertical Scaling
+- **Memory Optimization**: Efficient model loading and inference
+- **Performance Tuning**: Hardware-specific optimizations
+- **Resource Management**: Dynamic allocation based on requirements
+
+### Future Extensibility
+- **New Device Support**: Easy addition of new Motorola models
+- **Model Format Support**: Pluggable architecture for new AI formats
+- **Research Tools**: Extensible framework for new experimental methods
+
+---
+
+*This architecture provides a solid foundation for rigorous AI research on mobile devices while maintaining flexibility for future enhancements and new research directions.*
