@@ -140,18 +140,37 @@ Brack GGUF Chat App
 
 ### Model Auto-Detection
 
-The app automatically finds your deployed models:
+The app automatically finds your deployed models in priority order:
 
 ```kotlin
-// App checks these locations on startup:
-val lfm700mPath = "/data/local/tmp/lfm700m_gguf_test/model.gguf"
-val lfm1200Path = "/data/local/tmp/gguf_lfm1200_test/model.gguf"
+// App checks these locations on startup (priority order):
+val lfm700mPath = "/data/local/tmp/lfm700m_gguf_test/model.gguf"    // Priority 1
+val lfm1200Path = "/data/local/tmp/gguf_lfm1200_test/model.gguf"   // Priority 2
+val lfn350Path = "/data/local/tmp/lfm350_test/LFM2-350M/model.pte" // Priority 3 (test model)
 ```
 
 **Supported Models:**
-- ✅ **LFM2-700M-GGUF** (Recommended: 426MB, ~1.7 tok/sec)
-- ✅ **LFM2.5-1.2B-GGUF** (Advanced: 663MB, ~1 tok/sec)
-- ✅ **LFN350** (Legacy: Mock model for testing)
+
+| Model | Type | Size | Speed | Use Case | Status |
+|-------|------|------|-------|----------|--------|
+| **LFM2-700M-GGUF** | Production | 426MB | ~1.7 tok/sec | Balanced AI chat | ✅ **Recommended** |
+| **LFM2.5-1.2B-GGUF** | Production | 663MB | ~1 tok/sec | Deep reasoning | ✅ **Advanced** |
+| **LFN350** | Test Model | 38 bytes | ~50-100ms | Interface testing | ✅ **Available** |
+
+### LFN350 Test Model
+
+**Special Note:** LFN350 is a mock model designed for testing the Android interface. It provides:
+
+- ✅ **Fast responses** (~50-100ms) for smooth testing
+- ✅ **Simulated AI responses** appropriate for a 350M parameter model
+- ✅ **Interface validation** without requiring real model deployment
+- ⚠️ **Limited reasoning** compared to production LFM models
+
+**Perfect for:**
+- Testing the Android app interface
+- Validating chat functionality
+- Quick philosophical discussions
+- Interface performance testing
 
 ### Building and Installing
 
