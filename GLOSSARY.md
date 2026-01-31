@@ -35,7 +35,10 @@ The primary processor in a computing device, responsible for executing instructi
 ## D
 
 ### DSP (Digital Signal Processor)
-A specialized microprocessor optimized for digital signal processing tasks, such as audio and video processing.
+A specialized microprocessor optimized for digital signal processing tasks, such as audio and video processing. In mobile SoCs like Snapdragon 480, DSPs (like Hexagon) provide hardware acceleration for AI inference.
+
+### Dot Product Instructions
+ARMv8.2-A CPU instructions (UDOT/SDOT) that perform fused multiply-add operations on vectors, providing significant performance improvements for quantized neural network computations.
 
 ### Device Tree
 A data structure describing the hardware components of a computer system, used by the Linux kernel to identify and configure devices.
@@ -48,13 +51,19 @@ A computer system designed to perform dedicated functions within a larger mechan
 ### ExecuTorch
 A PyTorch runtime optimized for edge devices, providing efficient on-device inference for AI models.
 
+### ExportPass
+An ExecuTorch transformation class that modifies computation graphs during the export process, used for optimizations like quantization and hardware-specific transformations.
+
 ### Experimental Protocol
 A detailed plan specifying the procedures, materials, and methods for conducting a scientific experiment.
 
 ## F
 
 ### Falsification
-The act of disproving a hypothesis or theory by providing evidence that contradicts it. A core principle of scientific methodology.
+The act of disproving a hypothesis or theory by providing evidence that contradicts it. A core principle of scientific methodology used in the moltar research framework for validating performance claims.
+
+### FX Graph
+PyTorch's intermediate representation for neural networks, used by torch.fx for graph transformations and optimizations during model export.
 
 ### Fastboot
 A protocol used for communicating with Android devices in bootloader mode, allowing flashing of partitions and system images.
@@ -67,6 +76,9 @@ The set of classes, interfaces, and methods provided by the Android framework fo
 ### GPU (Graphics Processing Unit)
 A specialized processor designed for rendering graphics and performing parallel computations.
 
+### Ghost Partition Bug
+A critical ExecuTorch bug where the XNNPack partitioner accepts operations for delegation but fails to actually move them to the DSP subgraph, preventing hardware acceleration.
+
 ### Gradle
 A build automation tool used for Android development, managing dependencies, compilation, and packaging.
 
@@ -74,6 +86,9 @@ A build automation tool used for Android development, managing dependencies, com
 
 ### Hardware Acceleration
 The use of specialized hardware components (like GPUs or DSPs) to perform computations faster than software running on general-purpose CPUs.
+
+### Hexagon DSP
+Qualcomm's DSP architecture used in Snapdragon SoCs for efficient AI inference and signal processing, providing hardware acceleration for neural network operations.
 
 ### Hypothesis
 A testable statement or prediction about the relationship between variables in a research study.
@@ -86,6 +101,9 @@ A software application that provides comprehensive facilities for software devel
 ### Inference
 The process of using a trained AI model to make predictions or decisions on new data.
 
+### LFN (Liquid Foundation Model)
+Liquid AI's family of foundation models optimized for conversational AI and real-time inference on edge devices, featuring continuous learning capabilities and temporal coherence.
+
 ### Instrumentation
 The process of adding monitoring and logging capabilities to code for performance analysis and debugging.
 
@@ -93,6 +111,9 @@ The process of adding monitoring and logging capabilities to code for performanc
 
 ### JNI (Java Native Interface)
 A framework that allows Java code to call native C/C++ libraries and vice versa, enabling performance-critical operations.
+
+### LFN XNNPack Cleanup Pass
+A custom ExecuTorch ExportPass that fixes XNNPack partitioning issues for Liquid Foundation Models, addressing tuple output problems and redundant quantization chains.
 
 ### JVM (Java Virtual Machine)
 A virtual machine that executes Java bytecode, providing platform independence for Java applications.
@@ -183,6 +204,12 @@ A systematic approach to investigation involving observation, hypothesis formati
 
 ### Snapdragon
 A series of mobile processors designed by Qualcomm for smartphones and other devices.
+
+### Snapdragon 480
+Qualcomm's mobile SoC featuring 2x Cortex-A76 (big) cores and 6x Cortex-A55 (little) cores, with Hexagon 686 DSP for AI acceleration and Adreno 619 GPU.
+
+### SpaceGhost
+A research initiative optimizing ExecuTorch for Liquid AI Foundation Models on Motorola Snapdragon devices, implementing hardware-specific improvements and framework fixes.
 
 ### Statistical Significance
 The likelihood that a result is not due to chance. Used to determine if research findings are meaningful.

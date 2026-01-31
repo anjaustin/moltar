@@ -535,6 +535,253 @@ Automatic log rotation prevents disk space issues:
 # Compress old logs
 ```
 
+## SpaceGhost Optimization API
+
+### Snapdragon 480 Hardware Detection
+
+#### `snapdragon_480_caps_t` Structure
+Hardware capability detection results.
+
+**Members:**
+- `bool has_dotprod` - ARMv8.2-A +dotprod support
+- `bool has_fp16` - Half-precision floating point support
+- `bool has_sve` - Scalable Vector Extension support
+- `uint32_t l3_cache_size_kb` - L3 cache size in KB
+- `uint32_t big_core_count` - Number of big cores (Cortex-A76)
+- `uint32_t little_core_count` - Number of little cores (Cortex-A55)
+- `uint32_t max_frequency_mhz` - Maximum CPU frequency
+
+#### `detect_snapdragon_480_capabilities()`
+Detect Snapdragon 480 hardware capabilities at runtime.
+
+```c
+#include "snapdragon_480_optimization.h"
+
+snapdragon_480_caps_t caps = detect_snapdragon_480_capabilities();
+if (caps.has_dotprod) {
+    printf("Dot product support detected\n");
+}
+```
+
+**Returns:** `snapdragon_480_caps_t` structure with detected capabilities
+
+**Note:** Uses `getauxval(AT_HWCAP)` for runtime CPU feature detection
+
+#### `is_snapdragon_480_with_dotprod()`
+Check if running on Snapdragon 480 with dot product support.
+
+```c
+if (is_snapdragon_480_with_dotprod()) {
+    enable_snapdragon_480_optimizations();
+}
+```
+
+**Returns:** `true` if Snapdragon 480 with dot product support detected
+
+### Thread Pool Optimization
+
+#### `pin_thread_to_big_cores(pthread_t thread, uint32_t thread_index)`
+Pin thread to Snapdragon 480 big cores (Cortex-A76).
+
+```c
+#include <pthread.h>
+#include "snapdragon_480_optimization.h"
+
+pthread_t thread;
+pthread_create(&thread, NULL, worker_function, NULL);
+pin_thread_to_big_cores(thread, 0); // Pin to core 0
+```
+
+**Parameters:**
+- `thread`: Thread to pin
+- `thread_index`: Index for core assignment (0-1 for Snapdragon 480)
+
+**Returns:** 0 on success, errno on failure
+
+#### `get_optimal_thread_count_snapdragon_480()`
+Get optimal thread count for Snapdragon 480 (big cores only).
+
+```c
+uint32_t optimal_threads = get_optimal_thread_count_snapdragon_480();
+// Returns 2 for Snapdragon 480 (big cores only)
+```
+
+**Returns:** Recommended thread count (2 for Snapdragon 480)
+
+### Cache Optimization
+
+#### `prefetch_snapdragon_l3(const void* data, size_t size, int locality)`
+Prefetch data into Snapdragon 480 L3 cache.
+
+```c
+#include "cache_optimization_snapdragon.h"
+
+// Prefetch model weights for high locality
+prefetch_snapdragon_l3(weights, weight_size, PREFETCH_LOCALITY_HIGH);
+```
+
+**Parameters:**
+- `data`: Pointer to data to prefetch
+- `size`: Size of data in bytes
+- `locality`: Temporal locality hint (0-2)
+
+#### `optimize_memory_layout_snapdragon(const void* data, size_t size, size_t element_size)`
+Optimize memory layout for Snapdragon 480 cache hierarchy.
+
+```c
+void* optimized_data = optimize_memory_layout_snapdragon(
+    input_data, data_size, sizeof(float)
+);
+if (optimized_data) {
+    // Use optimized_data (cache-aligned)
+    free(optimized_data);
+}
+```
+
+**Returns:** Cache-aligned memory pointer, or original pointer if allocation fails
+
+### LFN XNNPack Cleanup Pass
+
+#### `LFNXNNPackCleanupPass` Class
+ExecuTorch ExportPass for cleaning graphs before XNNPack partitioning.
+
+**Implements:** `REQ-XNN-001` (MaxPool2d delegation) and `REQ-XNN-002` (quantization optimization)
+
+```python
+from executorch.exir.pass_base import ExportPass
+from research.spaceghost.patches.xnnpack.lfn_xnnpack_cleanup_pass import LFNXNNPackCleanupPass
+
+class LFNXNNPackCleanupPass(ExportPass):
+    def call(self, graph_module):
+        """
+        Apply cleanup transformations for XNNPack compatibility.
+
+        Args:
+            graph_module: FX GraphModule to transform
+
+        Returns:
+            PassResult with transformed graph
+        """
+        # Fixes REQ-XNN-001: MaxPool2d tuple output
+        # Fixes REQ-XNN-002: Redundant Q/DQ chains
+        # Prepares for REQ-XNN-003: Snapdragon optimization
+        pass
+```
+
+**Methods:**
+- `call(graph_module)`: Apply cleanup transformations
+- `remove_unused_maxpool_indices(graph_module)`: Strip MaxPool2d indices
+- `fuse_redundant_quantization(graph_module)`: Remove Q/DQ chains
+
+### Dot Product Kernels
+
+#### GEMM Microkernels
+Optimized GEMM kernels using ARM dot product instructions.
+
+```c
+// 1x8 microkernel for Snapdragon 480
+void xnn_qs8_gemm_minmax_ukernel_1x8__snapdragon480_dotprod_ld128(
+    size_t mr, size_t nr, size_t k,
+    const int8_t* a, size_t a_stride,
+    const int8_t* w, size_t w_stride,
+    const float* bias, float* c, size_t c_stride,
+    const union xnn_qs8_conv_minmax_params params[restrict static 1]
+);
+```
+
+**Features:**
+- ARMv8.2-A +dotprod instruction utilization
+- Cortex-A76 microarchitecture optimization
+- 128-bit load optimization
+- Quantized matrix multiplication acceleration
+
+### Validation and Testing API
+
+#### Falsification Testing Framework
+
+##### `falsification_req_xnn_001.py`
+Test REQ-XNN-001 MaxPool2d delegation implementation.
+
+```bash
+python research/spaceghost/falsification_req_xnn_001.py
+```
+
+**Tests:**
+- MaxPool2d tuple output transformation
+- XNNPack partitioner delegation
+- Graph structure preservation
+
+##### `falsification_req_xnn_002.py`
+Test REQ-XNN-002 quantization chain optimization.
+
+```bash
+python research/spaceghost/falsification_req_xnn_002.py
+```
+
+**Tests:**
+- Q/DQ chain detection and fusion
+- Graph simplification validation
+- Performance overhead reduction
+
+##### `falsification_req_xnn_003.py`
+Test REQ-XNN-003 Snapdragon 480 optimizations.
+
+```bash
+python research/spaceghost/falsification_req_xnn_003.py
+```
+
+**Tests:**
+- Hardware capability detection
+- Dot product kernel performance
+- Thread optimization effectiveness
+- Cache optimization validation
+
+#### Performance Monitoring
+
+##### `snapdragon_480_metrics_t` Structure
+Performance metrics for Snapdragon 480 optimizations.
+
+**Members:**
+- `uint64_t dotprod_instructions` - Dot product instructions executed
+- `uint64_t l3_cache_accesses` - L3 cache access count
+- `uint64_t big_core_time_us` - Time spent on big cores (microseconds)
+- `double dotprod_utilization` - Percentage of ops using dot product
+- `double cache_hit_rate` - L3 cache hit rate
+- `double big_core_utilization` - Percentage time on big cores
+
+##### `collect_snapdragon_480_metrics(snapdragon_480_metrics_t* metrics)`
+Collect performance metrics for Snapdragon optimizations.
+
+```c
+snapdragon_480_metrics_t metrics;
+collect_snapdragon_480_metrics(&metrics);
+print_snapdragon_480_metrics(&metrics);
+```
+
+### Build System Integration
+
+#### CMake Configuration
+```cmake
+# Enable Snapdragon 480 optimizations
+if(ANDROID AND CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=armv8.2-a+dotprod")
+    add_definitions(-DXNN_ARCH_ARM64_DOTPROD=1)
+    add_definitions(-DSNAPDRAGON_480_OPTIMIZATIONS=1)
+endif()
+```
+
+#### Makefile Integration
+```makefile
+# Snapdragon 480 specific flags
+SNAPDRAGON_CFLAGS = -march=armv8.2-a+dotprod -DSNAPDRAGON_480_OPTIMIZATIONS=1
+SNAPDRAGON_LDFLAGS = -latomic
+
+# Build optimized libraries
+snapdragon: CFLAGS += $(SNAPDRAGON_CFLAGS) -O3 -flto
+snapdragon: $(SNAPDRAGON_OBJS)
+    $(AR) rcs libxnnpack_snapdragon.a $(SNAPDRAGON_OBJS)
+```
+
 ## Security API
 
 ### Model Security
@@ -585,4 +832,4 @@ val sharedPreferences = EncryptedSharedPreferences.create(
 
 ---
 
-*This API reference provides comprehensive documentation for all moltar interfaces, functions, and configuration options.*
+*This API reference provides comprehensive documentation for all moltar interfaces, functions, and configuration options, including the new SpaceGhost optimization APIs.*

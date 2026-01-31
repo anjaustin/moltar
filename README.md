@@ -183,6 +183,9 @@ See [CHANGELOG.md](CHANGELOG.md) for complete version history, breaking changes,
 - **[docs/methodology/RESEARCH_METHODOLOGY.md](docs/methodology/RESEARCH_METHODOLOGY.md)** - Research standards and validation frameworks
 - **[docs/SPACEGHOST_BRACK_INTEGRATION.md](docs/SPACEGHOST_BRACK_INTEGRATION.md)** - SpaceGhost + Brack integration guide
 - **[docs/LFN_DEPLOYMENT_GUIDE.md](docs/LFN_DEPLOYMENT_GUIDE.md)** - Complete LFN model deployment with SpaceGhost optimizations
+- **[docs/SPACEGHOST_ARCHITECTURE.md](docs/SPACEGHOST_ARCHITECTURE.md)** - Detailed SpaceGhost optimization architecture
+- **[docs/SPACEGHOST_EXAMPLES.md](docs/SPACEGHOST_EXAMPLES.md)** - Practical code examples for SpaceGhost usage
+- **[docs/SPACEGHOST_MIGRATION_GUIDE.md](docs/SPACEGHOST_MIGRATION_GUIDE.md)** - Migration guide for adopting SpaceGhost optimizations
 - **[scripts/README.md](scripts/README.md)** - Device connection and automation guides
 
 ### Generated Documentation
