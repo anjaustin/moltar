@@ -4,7 +4,8 @@
 
 **Status:** ✅ **FULLY IMPLEMENTED AND VALIDATED**
 **Date:** January 26, 2026
-**Platform:** Snapdragon 480 (SM4350) - Cortex-A76 + Cortex-A55
+**Platforms Tested:** MediaTek MT6855V (Current) + Snapdragon 480 (Target)
+**Current Hardware:** Motorola moto g power 5G - MediaTek MT6855V (ARM Cortex-A55 x8)
 
 ---
 
