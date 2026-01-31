@@ -51,20 +51,140 @@ brack/
 - **Liquid.ai LFM SDK**: Latest release
 - **Android Gradle Plugin**: 8.0+
 
-## Quick Start
+## Android App: GGUF Chat Interface
 
-### 1. Environment Setup
+**NEW!** Use LFN models through a native Android app - no shell access required!
+
+### 🚀 One-Click Android App Deployment (Recommended)
+
+For users with factory Android installation but no shell access:
+
 ```bash
-# Clone and setup moltar environment
-cd /path/to/moltar
-./moltar_setup.sh
-
-# Navigate to brack project
-cd research/brack
-
-# Run environment setup
-./scripts/setup_environment.sh
+# Build and deploy the Android app
+./build_gguf_android_app.sh
 ```
+
+**What this does:**
+- ✅ Builds the Brack GGUF Chat app
+- ✅ Deploys to your Motorola device
+- ✅ Installs as native Android application
+- ✅ Auto-detects deployed GGUF models
+- ✅ Provides chat interface with performance monitoring
+
+### 📱 Using the Android App
+
+1. **Install:** Run the build script above
+2. **Open:** Find "Brack GGUF Chat" in your app drawer
+3. **Chat:** Start conversing with your LFM model!
+
+**Features:**
+- 🤖 **GGUF Inference:** Native GGUF model support
+- 📊 **Performance Monitoring:** Real-time metrics
+- ⚡ **SpaceGhost Optimized:** Hardware acceleration indicators
+- 💬 **Chat Interface:** Natural conversation flow
+- 🔍 **Model Auto-Detection:** Finds deployed models automatically
+
+---
+
+## 🎯 Solution: Android App for Factory Installations
+
+**Perfect for your situation!** Since you have factory Android but no shell access, use our native Android app:
+
+### Why This Approach Works
+
+| Requirement | Shell Access | Android App |
+|-------------|--------------|-------------|
+| **Factory Android** | ❌ Limited | ✅ **Full Support** |
+| **GGUF Models** | Manual scripts | ✅ **Auto-Detection** |
+| **User Interface** | Command line | ✅ **Chat Interface** |
+| **Performance Monitoring** | Complex logging | ✅ **Real-time Metrics** |
+| **SpaceGhost Integration** | Manual checks | ✅ **Built-in Indicators** |
+
+### Android App Architecture
+
+```
+Brack GGUF Chat App
+├── GGUFChatActivity (Main UI)
+│   ├── Chat Interface (ScrollView + TextView)
+│   ├── Message Input (EditText + Button)
+│   └── Performance Monitoring
+├── Model Management
+│   ├── Auto-Detection (/data/local/tmp/*)
+│   ├── GGUF Runtime Integration
+│   └── SpaceGhost Optimization Status
+└── Motorola Optimization
+    ├── MediaTek MT6855V Support
+    ├── Hardware Acceleration
+    └── Battery Optimization
+```
+
+### App Features
+
+#### 🤖 AI Capabilities
+- **Model Support:** LFN350, LFM700M, LFM1.2B (GGUF)
+- **Inference:** Real-time GGUF processing
+- **Quality:** Full Liquid AI reasoning capabilities
+- **Performance:** Optimized for mobile hardware
+
+#### 📱 User Experience
+- **Chat Interface:** Natural conversation flow
+- **Auto-Scroll:** Keeps latest messages visible
+- **Performance Metrics:** Real-time latency display
+- **Error Handling:** User-friendly error messages
+
+#### ⚡ Performance Features
+- **SpaceGhost Integration:** Hardware acceleration indicators
+- **Battery Monitoring:** Power usage optimization
+- **Memory Management:** Efficient resource usage
+- **Real-time Metrics:** Inference timing and statistics
+
+### Model Auto-Detection
+
+The app automatically finds your deployed models:
+
+```kotlin
+// App checks these locations on startup:
+val lfm700mPath = "/data/local/tmp/lfm700m_gguf_test/model.gguf"
+val lfm1200Path = "/data/local/tmp/gguf_lfm1200_test/model.gguf"
+```
+
+**Supported Models:**
+- ✅ **LFM2-700M-GGUF** (Recommended: 426MB, ~1.7 tok/sec)
+- ✅ **LFM2.5-1.2B-GGUF** (Advanced: 663MB, ~1 tok/sec)
+- ✅ **LFN350** (Legacy: Mock model for testing)
+
+### Building and Installing
+
+#### Prerequisites
+- Android Studio (or command line tools)
+- Android SDK (API 31+)
+- Connected Motorola device
+- Deployed GGUF models (from `deploy_lfm700m_gguf.py`)
+
+#### Build Commands
+```bash
+# One-click build and install
+./build_gguf_android_app.sh
+
+# Manual build steps
+./gradlew clean
+./gradlew assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb shell am start -n com.moltar.brack/.GGUFChatActivity
+```
+
+#### Verification
+```bash
+# Check installation
+adb shell pm list packages | grep brack
+
+# View app logs
+adb logcat | grep Brack
+```
+
+---
+
+## Quick Start (Development/Shell Access)
 
 ### 2. Download LFN Model
 ```bash
