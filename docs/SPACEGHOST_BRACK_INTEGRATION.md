@@ -2,14 +2,23 @@
 
 ## Overview
 
-This guide explains how SpaceGhost ExecuTorch optimizations integrate with the Brack Liquid AI deployment system to deliver high-performance LFN (Liquid Foundation Model) inference on Motorola Snapdragon 480 devices.
+This guide explains how SpaceGhost ExecuTorch optimizations integrate with the Brack Liquid AI deployment system to deliver high-performance LFN/LFM inference on Motorola Android devices.
+
+### Validated hardware (this repo)
+
+Our current, repeatedly tested on-device target is:
+- **Device**: moto g power 5G (2023)
+- **SoC**: MediaTek Dimensity 930 (MT6855V)
+- **GPU**: PowerVR BXM-8-256
+
+Some SpaceGhost concepts and benchmarks also mention Snapdragon/XNNPack-DSP; treat those as **device-specific** and not automatically transferable.
 
 ## Architecture Overview
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
 │   SpaceGhost    │    │     Brack       │    │   Motorola      │
-│ ExecuTorch      │────│   LFN Chat      │────│ Snapdragon 480  │
+│ ExecuTorch      │────│   LFN Chat      │────│ Android device  │
 │ Optimizations   │    │   Deployment    │    │   Device        │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
          │                       │                       │
@@ -51,7 +60,7 @@ exec_program = partitioned.to_executorch()
 - **Problem**: MaxPool2d operations failed to delegate to XNNPack DSP
 - **Solution**: Ghost Partition bug bypassed via cleanup pass
 - **Impact**: 2-3x performance improvement for CNN/LFN models
-- **Validation**: Successfully tested on Motorola Snapdragon 480
+- **Validation**: Verified within SpaceGhost test harnesses; device-level delegation depends on the SoC/backend available
 
 #### REQ-XNN-002: Dynamic Quantization Chain Duplication
 - **Problem**: Redundant Q→DQ→Q→DQ chains created 30-50% overhead
@@ -60,9 +69,11 @@ exec_program = partitioned.to_executorch()
 - **Validation**: Core fusion logic validated through direct testing
 
 #### REQ-XNN-003: Snapdragon 480 DSP Optimization (Pending)
-- **Target**: Hardware-specific kernel optimizations
+**Device-specific** workstream.
+
+- **Target**: Hardware-specific kernel optimizations (e.g., Snapdragon DSP paths)
 - **Features**: Dot Product instructions, thread pinning, cache optimization
-- **Expected**: Additional 30-50% performance gains
+- **Expected**: Additional performance gains on compatible hardware
 
 ### 3. Model Preparation Pipeline
 
@@ -90,23 +101,21 @@ adb shell /data/local/tmp/spaceghost_demo/show_achievements.sh
 | Metric | Baseline | SpaceGhost | Improvement |
 |--------|----------|------------|-------------|
 | Latency (ms) | 200+ | 64.8 | **69% faster** |
-| Delegate Ops | 0 | 3 | **Enabled DSP acceleration** |
-| Memory Format | NCHW | NHWC | **Optimal for Snapdragon** |
+| Delegate Ops | 0 | 3 | **Backend-dependent** |
+| Memory Format | NCHW | NHWC | **Backend-dependent** |
 | Quantization Overhead | High | Minimal | **30-50% reduction** |
 
 ### Device Validation Results
 
 **Test Device**: Motorola moto g power 5G - 2023
-- **Chipset**: Snapdragon 480 (SM4350)
+- **Chipset**: MediaTek Dimensity 930 (MT6855V)
 - **Android**: 14 (API 34)
-- **DSP**: Hexagon 686
+- **GPU**: PowerVR BXM-8-256
 
-**Validation Results**:
-- ✅ MaxPool2d operations delegate to XNNPack DSP
-- ✅ Average latency: 64.8ms (target: <200ms ✓)
-- ✅ Delegate operations: 3 confirmed
-- ✅ Memory format: NHWC optimization active
-- ✅ Performance monitor: SpaceGhost optimizations detected
+**Validation Results** (what we can assert on this device class):
+- ✅ Brack + ExecuTorch pipelines build and run on-device
+- ✅ Vulkan compute works for small, bounded workloads (see Neural Interposer demo)
+- ⚠️ Large Vulkan allocations can cause GPU OOM / instability (see `TROUBLESHOOTING_GUIDE.md` and `VULKAN_POWERVR_NOTES.md`)
 
 ## Troubleshooting Integration Issues
 

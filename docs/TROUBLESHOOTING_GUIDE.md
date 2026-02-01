@@ -2,7 +2,7 @@
 
 ## Overview
 
-This guide provides solutions for common issues encountered during Liquid AI Foundation Model (LFN) deployment with SpaceGhost optimizations on Motorola Snapdragon 480 devices.
+This guide provides solutions for common issues encountered during Liquid AI Foundation Model (LFN) deployment with SpaceGhost optimizations on Motorola Android devices.
 
 ## Quick Diagnosis
 
@@ -93,6 +93,57 @@ adb usb
 # 5. Disable battery optimization for ADB
 # Settings > Apps > Android System > Don't optimize
 ```
+
+## Vulkan / GPU Issues (PowerVR-focused notes)
+
+These are the recurring failure modes we’ve hit on the **moto g power 5G (2023)** class device (**PowerVR BXM-8-256** GPU).
+
+### Problem: `glslc from the Vulkan SDK must be installed`
+
+**Symptom:** ExecuTorch Vulkan build fails during shader compilation.
+
+**Fix (macOS):**
+```bash
+brew install shaderc
+which glslc
+glslc --version
+```
+
+### Problem: Device reboots / `adb: error: closed` during Vulkan execution
+
+**Most common causes we’ve observed:**
+- **GPU OOM / driver reset** during large allocations (often looks like an abrupt disconnect)
+- **Truncated model push** after a reboot (model file on device is smaller than expected)
+
+**Actions:**
+```bash
+# 1) Always capture the failure line (when possible)
+adb logcat -c
+
+# 2) Verify file size on device matches host after any reboot
+adb shell ls -lh /data/local/tmp/*.pte
+
+# 3) If file size is wrong, re-push fully
+adb push /path/to/model.pte /data/local/tmp/
+```
+
+### Problem: Vulkan allocator error `vmaAllocateMemory(...) returned -2`
+
+**Meaning:** out-of-device/host memory from the Vulkan driver (often `VK_ERROR_OUT_OF_DEVICE_MEMORY`).
+
+**Mitigations:**
+- Reduce what gets delegated to Vulkan (blocklist weight-heavy ops during export)
+- Use smaller models / smaller context / smaller planned buffers
+- Prefer non-persistent GPU scheduling patterns on PowerVR (see next section)
+
+### Problem: “Persistent kernel” style GPU loop doesn’t observe CPU-driven signals
+
+On PowerVR, a long-running compute dispatch that spin-waits on a host-updated buffer may **not** reliably see the signal transition. In practice, this shows up as the host timing out waiting for the GPU to change a phase word.
+
+**Workaround (recommended baseline):**
+- Use the Neural Interposer demo in **multi-submit mode**, which still preserves state as “channel voltage” across waves, but avoids a single never-ending dispatch.
+
+See: `research/brack/neural_interposer_demo/README.md`
 
 ## SpaceGhost Optimization Issues
 

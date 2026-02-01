@@ -2,7 +2,13 @@
 
 ## Overview
 
-This guide provides comprehensive instructions for deploying Liquid AI Foundation Models (LFN) on Motorola Snapdragon 480 devices using the optimized Brack + SpaceGhost pipeline.
+This guide provides comprehensive instructions for deploying Liquid AI Foundation Models (LFM/LFN) on Motorola Android devices using the Brack + SpaceGhost pipeline.
+
+### Validated hardware (this repo)
+
+- **Device**: moto g power 5G (2023)
+- **SoC**: MediaTek Dimensity 930 (MT6855V)
+- **GPU**: PowerVR BXM-8-256
 
 ## Prerequisites
 
@@ -14,7 +20,7 @@ This guide provides comprehensive instructions for deploying Liquid AI Foundatio
 - **Git LFS**: For downloading large model files
 
 ### Device Requirements
-- **Motorola Device**: moto g power 5G (2023) or compatible Snapdragon 480 device
+- **Motorola Device**: moto g power 5G (2023) or compatible Android device (arm64)
 - **Android Version**: 12+ (API 31+)
 - **Storage**: 2GB+ free space
 - **USB Debugging**: Enabled in developer options
@@ -51,6 +57,13 @@ cd research/brack
 ./scripts/build_debug_spaceghost.sh
 ./scripts/deploy_device_spaceghost.sh
 ```
+
+## Alternative Quick Start: Neural Interposer demo (Vulkan)
+
+If you want a minimal Vulkan proof-of-life (channels + frozen chip) independent of ExecuTorch:
+
+- Demo README: `../research/brack/neural_interposer_demo/README.md`
+- PowerVR Vulkan notes: `VULKAN_POWERVR_NOTES.md`
 
 ## Detailed Deployment Steps
 

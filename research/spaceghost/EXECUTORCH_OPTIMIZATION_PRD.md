@@ -74,6 +74,12 @@ Based on comprehensive web research of GitHub issues, technical reviews, and com
 ### Vision
 Create a comprehensive optimization framework for ExecuTorch that addresses documented bottlenecks while maintaining full compatibility with the existing ecosystem. Focus on Snapdragon 480 hardware and Liquid Foundation Model requirements.
 
+### ExecuTorch + Soft‑Chip Track (Neural Interposer)
+In parallel with “classic” kernel/backend optimizations, we maintain a hybrid track where ExecuTorch remains the runtime while selected hot-path ops are accelerated via our **soft‑chip** execution path.
+
+- **Integration doc**: `../../docs/EXECUTORCH_SOFT_CHIP_INTEGRATION.md`
+- **Methodology** (how we approach non-trivial integration work): `../../LMM.md` (The Lincoln Manifold Method)
+
 ### Core Principles
 1. **Data-Driven Development**: All optimizations based on empirical performance measurements
 2. **Scientific Rigor**: Falsifiable hypotheses with statistical validation

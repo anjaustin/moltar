@@ -34,24 +34,43 @@ cd moltar
 - Configures research environment
 - Installs all dependencies
 
-### Step 2: Deploy AI Model
+### Step 2: Pick a Path
+
+Moltar currently has **two practical “hello world” paths**:
+
+- **Path A (ExecuTorch / Brack)**: deploy and run LFM2 via the Brack + SpaceGhost pipeline.
+- **Path B (Neural Interposer / Vulkan demo)**: run a minimal Vulkan “channel + frozen chip” demo on-device.
+
+#### Path A: Brack + SpaceGhost (ExecuTorch)
 ```bash
-# Deploy LFN350 (recommended for first-time users)
-./research/brack/scripts/download_lfm_model.sh LiquidAI/LFM2-350M
-./research/brack/scripts/deploy_lfm350_device.sh
+cd research/brack
+
+# Download model artifacts (if needed by your workflow)
+./scripts/download_lfm_model.sh LiquidAI/LFM2-350M
+
+# Build + deploy the Brack pipeline to the connected device
+./scripts/build_debug_spaceghost.sh
+./scripts/deploy_device_spaceghost.sh
 ```
 
-### Step 3: Test AI Conversation
+#### Path B: Neural Interposer demo (Vulkan)
 ```bash
-# Ask the AI a philosophical question
-./research/brack/scripts/test_lfn350_philosophical.sh
+# Build a standalone Android binary + SPIR-V shader
+export ANDROID_NDK="$HOME/Library/Android/sdk/ndk/$(ls $HOME/Library/Android/sdk/ndk | head -1)"
+bash research/brack/neural_interposer_demo/scripts/build_android.sh
 
-# Expected output:
-# 🤖 LFN350 Response: [Thoughtful philosophical analysis]
-# 📊 Performance: ~50-100ms latency
+# Push + run on the device
+adb push research/brack/neural_interposer_demo/build-android/interposer_demo /data/local/tmp/
+adb push research/brack/neural_interposer_demo/build-android/interposer_demo.spv /data/local/tmp/
+adb shell chmod +x /data/local/tmp/interposer_demo
+adb shell "/data/local/tmp/interposer_demo --mode multi_submit --spv /data/local/tmp/interposer_demo.spv --n 1024 --waves 16"
+
+# Expected logs:
+# - Using GPU: PowerVR BXM-8-256
+# - Wave 0..15 done with max_abs_err(first64)=0.000000
 ```
 
-**🎉 You're done!** AI is now running on your Motorola device.
+**🎉 You're done!** You now have a verified on-device execution loop (either via ExecuTorch or via the Neural Interposer demo).
 
 ---
 
@@ -98,7 +117,7 @@ cd moltar
 # Expected output:
 # 📱 Device: Motorola moto g power 5G
 # 🔧 Android: 14
-# 💽 SoC: MT6855V (Dimensity 720)
+# 💽 SoC: MediaTek Dimensity 930 (MT6855V)
 # ✅ Connection: Ready for research
 ```
 
@@ -116,25 +135,19 @@ cd moltar
 
 ### Step 3: Model Deployment (5 minutes)
 
-#### 3.1 Choose Your Model
+#### 3.1 Choose Your Model (ExecuTorch path)
 
-| Model | Speed | Quality | Best For | Size |
+| Model | Notes | Best For |
 |-------|-------|---------|----------|------|
-| **LFN350** | ⚡ Fast | 🤔 Good | First-time users | 38 bytes* |
-| **LFM700M** | 🚀 Very Fast | 🧠 Excellent | Conversations | 426MB |
-| **LFM1.2B** | 🐌 Slower | 🎓 Deep Analysis | Research | 663MB |
+| **LFM2-350M** | Smallest practical LFM2 size for experimentation | First-time ExecuTorch runs |
+| **LFM2-700M** | Larger; may hit memory limits on some devices/backends | Follow-on experiments |
 
-*LFN350 is a mock model for testing - LFM700M recommended for real AI
-
-#### 3.2 Download and Deploy
+#### 3.2 Download and Deploy (ExecuTorch path)
 ```bash
-# For beginners (recommended):
-./research/brack/scripts/download_lfm_model.sh LiquidAI/LFM2-700M
-./research/brack/scripts/deploy_lfm700m_gguf.py
-
-# For advanced users:
-./research/brack/scripts/download_lfm_model.sh LiquidAI/LFM2-350M
-./research/brack/scripts/deploy_lfm350_device.sh
+cd research/brack
+./scripts/download_lfm_model.sh LiquidAI/LFM2-350M
+./scripts/build_debug_spaceghost.sh
+./scripts/deploy_device_spaceghost.sh
 ```
 
 ### Step 4: AI Testing (3 minutes)

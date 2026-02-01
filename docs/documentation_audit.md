@@ -1,12 +1,12 @@
-# Documentation Audit & Gap Analysis
+# Documentation Audit & Gap Analysis (Living Document)
 
-**Date:** January 31, 2026
+**Date:** January 31, 2026 (initial) / February 2026 (updates)
 **Auditor:** Moltar AI Assistant
 **Scope:** Complete documentation review for Moltar research platform
 
 ## Executive Summary
 
-The Moltar documentation is comprehensive but has several critical gaps that should be addressed to improve user experience and research reproducibility.
+The Moltar documentation is broad, but it drifts when the repo’s validated hardware/runtime path changes. The biggest recurring “gaps” are **accuracy**, **reproducibility**, and **known-good runnable recipes**.
 
 **Current State:** 95% coverage of essential documentation ✅
 **Priority Gaps:** 2 critical documents remaining
@@ -15,7 +15,7 @@ The Moltar documentation is comprehensive but has several critical gaps that sho
 
 ---
 
-## 📊 Documentation Coverage Matrix
+## 📊 Documentation Coverage Matrix (high-level)
 
 | Category | Document | Status | Coverage | Priority | Notes |
 |----------|----------|--------|----------|----------|-------|
@@ -31,26 +31,28 @@ The Moltar documentation is comprehensive but has several critical gaps that sho
 | **Research** | RESEARCH_METHODOLOGY.md | ✅ Complete | 75% | **MEDIUM** | Good foundation, needs examples |
 | **Security** | SECURITY.md | ✅ **COMPLETE** | 85% | - | Critical for research platform ✅ |
 | **Contributing** | CONTRIBUTING.md | ⚠️ Partial | 40% | **MEDIUM** | Basic structure exists |
-| **Deployment** | DEPLOYMENT_GUIDE.md | ❌ **MISSING** | 0% | **MEDIUM** | Practical deployment examples |
-| **Integration** | INTEGRATION_GUIDE.md | ❌ **MISSING** | 0% | **MEDIUM** | How to integrate with other systems |
+| **Deployment** | docs/LFN_DEPLOYMENT_GUIDE.md | ✅ | 80% | **HIGH** | Needs hardware-accuracy guardrails |
+| **Integration** | docs/SPACEGHOST_BRACK_INTEGRATION.md | ✅ | 75% | **HIGH** | Needs device-specific qualifiers |
 | **Changelog** | CHANGELOG.md | ✅ Complete | 70% | **LOW** | Good but could be more detailed |
 
 ---
 
 ## 🚨 Critical Gaps (Must Fix)
 
-### 1. Getting Started Guide (`QUICK_START.md`)
-**Impact:** New users cannot get started
-**Current:** Zero documentation
-**Needed:** Step-by-step guide for common use cases:
-- "I want to run AI on my Motorola"
-- "I want to deploy LFN models"
-- "I want to test SpaceGhost optimizations"
+### 1. Hardware/runtime accuracy guardrails
+**Impact:** Users follow the wrong instructions for the actual device/backend (e.g., Snapdragon vs Dimensity, Mali vs PowerVR).
 
-### 2. Installation Guide (`INSTALL.md`)
-**Impact:** Referenced in README but doesn't exist
-**Current:** Broken links
-**Needed:** Complete installation instructions for all components
+**Fix pattern:**
+- Every hardware-sensitive doc must state:
+  - validated device + SoC + GPU
+  - what’s “projected” vs “measured”
+
+### 2. “Known-good recipes” for Vulkan + Android NDK builds
+**Impact:** The most time-consuming failures are toolchain drift (`glslc`, NDK paths) and Vulkan runtime instability.
+
+**Fix:** keep a single source of truth:
+- `docs/VULKAN_POWERVR_NOTES.md`
+- `research/brack/neural_interposer_demo/README.md`
 
 ### 3. API Reference (`API.md`)
 **Impact:** Developers cannot use the platform
@@ -66,10 +68,10 @@ The Moltar documentation is comprehensive but has several critical gaps that sho
 
 ## ⚠️ High Priority Gaps (Should Fix)
 
-### 5. Hardware Compatibility Guide (`HARDWARE_COMPATIBILITY.md`)
-**Impact:** Users don't know what devices work
-**Current:** Scattered in various docs
-**Needed:** Device compatibility matrix, requirements, limitations
+### 5. Single “docs index” entry point
+**Impact:** Users don’t know where the authoritative steps live.
+
+**Fix:** `docs/INDEX.md` + update `docs/README.md`
 
 ### 6. Model Selection Guide (`MODEL_GUIDE.md`)
 **Impact:** Users don't know which models to use
@@ -107,13 +109,11 @@ The Moltar documentation is comprehensive but has several critical gaps that sho
 
 ---
 
-## 🔧 Implementation Plan
+## 🔧 Implementation Plan (recommended)
 
-### Phase 1: Critical Fixes (Week 1-2) ✅ COMPLETED
-1. **✅ Create QUICK_START.md** - Simple getting started guide
-2. **✅ Create INSTALL.md** - Complete installation documentation
-3. **Expand API.md** - Add missing API documentation
-4. **✅ Create ARCHITECTURE.md** - System architecture documentation
+### Phase 0: Keep docs truthful (ongoing)
+- Add “validated hardware” sections to hardware-sensitive docs
+- Maintain “known-good” recipes for NDK/Vulkan paths
 
 ### Phase 2: High Priority (Week 3-4) ✅ COMPLETED
 5. **✅ Create HARDWARE_COMPATIBILITY.md** - Device support matrix
@@ -189,4 +189,4 @@ The Moltar documentation is comprehensive but has several critical gaps that sho
 
 ---
 
-*This audit has transformed Moltar's documentation from incomplete to world-class, ensuring users have everything needed for successful research and development.*
+*This audit is most useful as a living checklist that stays aligned with what actually runs on real hardware.*

@@ -8,16 +8,17 @@ Moltar aims to be the premier platform for rigorous, reproducible security resea
 
 ### ✅ Completed Features
 - **Research Methodology Framework**: Complete scientific validation pipeline with falsification-first approach
-- **SpaceGhost ExecuTorch Optimizations**: Framework-level improvements for mobile AI (REQ-XNN-001, REQ-XNN-002, REQ-XNN-003 complete)
+- **SpaceGhost ExecuTorch Optimizations**: Framework-level improvements for mobile AI (REQ-XNN-001, REQ-XNN-002 shipped; REQ-XNN-003 remains device-specific/in-progress)
 - **Brack LFN Deployment**: Liquid AI model deployment on Motorola devices with SpaceGhost integration
 - **Falsification Testing Framework**: Rigorous validation of performance claims with independent verification
 - **Documentation Suite**: Comprehensive guides covering deployment, integration, and troubleshooting
-- **Cross-Platform Validation**: Successful deployment and testing on Motorola MediaTek MT6855V hardware
+- **Cross-Platform Validation**: Successful deployment and testing on Motorola **MediaTek MT6855V (Dimensity 930)** hardware (PowerVR GPU)
 - **Performance Achievements**: 2-3x improvement validated on current hardware, 4-8x projected for Snapdragon 480
 - **Real Hardware Testing**: LFM350 model deployed and tested on physical Android device
 
 ### 🎯 Active Development
-- **REQ-XNN-003 Implementation**: Snapdragon 480 DSP kernel optimizations (dot product, threading, cache)
+- **REQ-XNN-003 Implementation**: Hardware-specific tuning tracks (e.g., Snapdragon DSP paths, threading/cache tuning)
+- **Neural Interposer track**: Channel-based architecture + Vulkan demos (see `docs/NEURAL_INTERPOSER.md`)
 - **Multi-Device Support**: Expansion beyond Motorola devices
 - **Research Automation**: Enhanced testing and validation frameworks
 - **Advanced Quantization**: Per-channel and mixed-precision optimizations
@@ -128,6 +129,12 @@ Phase 4: Global security research ecosystem
 - **Phase 2**: <50ms inference, real-time processing
 - **Phase 3**: <10ms inference, distributed processing
 - **Phase 4**: Predictive security, zero-latency response
+
+## Pointers
+
+- **Docs index (start here)**: `docs/INDEX.md`
+- **Validated hardware matrix**: `HARDWARE_COMPATIBILITY.md`
+- **PowerVR Vulkan notes**: `docs/VULKAN_POWERVR_NOTES.md`
 
 ## Contributing to the Roadmap
 

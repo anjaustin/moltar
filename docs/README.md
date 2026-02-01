@@ -16,6 +16,12 @@ docs/
 
 The `methodology/` directory contains frameworks for conducting rigorous, auditable security research:
 
+## Where to Start
+
+- **Docs index (start here)**: `INDEX.md`
+- **ExecuTorch + soft‑chip integration**: `EXECUTORCH_SOFT_CHIP_INTEGRATION.md`
+- **Lincoln Manifold Method**: `../LMM.md`
+
 ### [RESEARCH_METHODOLOGY.md](methodology/RESEARCH_METHODOLOGY.md)
 
 Comprehensive framework covering:

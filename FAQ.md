@@ -34,6 +34,8 @@ Moltar is designed for:
    ```
 
 3. **Follow the installation guide** in `INSTALL.md`
+4. **Use the docs index** for the right path:
+   - `docs/INDEX.md`
 
 ### What are the system requirements?
 
@@ -73,12 +75,16 @@ Yes, but with restrictions. See `LICENSE` for commercial use terms. Contact the 
 
 ### What devices does Moltar support?
 
-Currently optimized for:
-- **Motorola 5G Play (2023)** with Snapdragon 480
-- Android 12+ (API 31+) devices
+Currently validated for:
+- **Motorola moto g power 5G (2023)**  
+  - **SoC**: MediaTek Dimensity 930 (MT6855V)  
+  - **GPU**: PowerVR BXM-8-256
+- **Android 12+ (API 31+)** devices (arm64)
 - USB debugging enabled devices
 
-Future versions will support additional devices.
+Notes:
+- Some documentation and optimization workstreams mention Snapdragon/DSP paths; treat those as **device-specific** and not automatically applicable to the Dimensity/PowerVR device class.
+- For the authoritative compatibility matrix, see `HARDWARE_COMPATIBILITY.md`.
 
 ### What AI models does Moltar support?
 
@@ -125,7 +131,7 @@ Yes, for development and testing:
 
 ### What are the performance targets?
 
-Current targets for LFM2-350M on Snapdragon 480:
+Current targets for LFM2-350M on mobile-class Android devices:
 - **Latency**: <200ms response time
 - **Memory**: <256MB RAM usage
 - **Storage**: ~500MB model size

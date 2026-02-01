@@ -164,6 +164,7 @@ See [CHANGELOG.md](CHANGELOG.md) for complete version history, breaking changes,
 ## 📚 Documentation
 
 ### Core Documentation
+- **[docs/INDEX.md](docs/INDEX.md)** - Start here (docs entry point)
 - **[INSTALL.md](INSTALL.md)** - Complete installation and setup guide
 - **[API.md](API.md)** - API reference for all tools and interfaces
 - **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - Common issues and solutions

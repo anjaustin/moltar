@@ -18,9 +18,9 @@ Complete guide to device compatibility, requirements, and hardware optimization 
 ### Primary Supported Devices
 
 #### Motorola moto g power 5G (2023) - **RECOMMENDED**
-- **SoC**: MediaTek MT6855V (Dimensity 720)
-- **CPU**: 8x ARM Cortex-A55 @ 2.0-2.2 GHz
-- **GPU**: ARM Mali-G52 MP2
+- **SoC**: MediaTek MT6855V (Dimensity 930)
+- **CPU**: 2x Cortex-A78 + 6x Cortex-A55
+- **GPU**: PowerVR BXM-8-256
 - **RAM**: 3.6GB LPDDR4X
 - **Storage**: 64GB
 - **Android**: 13/14
@@ -129,15 +129,13 @@ Complete guide to device compatibility, requirements, and hardware optimization 
 #### MediaTek MT6855V (moto g power 5G)
 
 **CPU Features:**
-- ✅ ARMv8.2-A architecture
+- ✅ ARMv8-A 64-bit
 - ✅ Advanced SIMD (ASIMD) support
-- ✅ Dot product instructions (UDOT/SDOT)
-- ✅ 8x Cortex-A55 cores @ 2.0-2.2 GHz
+- ✅ Big.LITTLE topology (2x big cores + 6x efficiency cores)
 
 **AI Acceleration:**
-- ✅ MediaTek AI Processing Unit
-- ✅ Hardware-accelerated neural processing
-- ✅ Optimized for mobile AI workloads
+- ✅ MediaTek APU present (not yet integrated in this repo)
+- ✅ Vulkan-capable GPU (PowerVR)
 
 **SpaceGhost Optimizations:**
 - ✅ **REQ-XNN-001**: MaxPool2d DSP delegation
