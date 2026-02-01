@@ -21,7 +21,7 @@ class LFNXNNPackCleanupPass(ExportPass):
 
     1. Fixes REQ-XNN-001: Strips unused indices from MaxPool2d to allow delegation
     2. Fixes REQ-XNN-002: Removes redundant Q/DQ chains that cause duplication
-    3. Prepares for REQ-XNN-003: Optimizes for Snapdragon 480 memory format
+    3. Prepares for REQ-XNN-003: Optimizes memory format for ARM/MediaTek
     """
 
     def call(self, graph_module: GraphModule):
@@ -150,9 +150,9 @@ class LFNXNNPackCleanupPass(ExportPass):
 
 def apply_memory_format_optimization(edge_program):
     """
-    Apply memory format optimization for Snapdragon 480.
+    Apply memory format optimization for ARM/MediaTek.
 
-    The Kryo 460 (Cortex-A76) performs significantly better with NHWC (channels_last)
+    ARM Cortex cores (e.g. A55/A78) perform significantly better with NHWC (channels_last)
     for quantized operations like MaxPool2d.
 
     Args:
@@ -161,16 +161,16 @@ def apply_memory_format_optimization(edge_program):
     Returns:
         Optimized EdgeProgram
     """
-    print("📱 Applying Snapdragon 480 memory format optimization...")
+    print("📱 Applying ARM/MediaTek memory format optimization...")
 
     try:
         from executorch.exir.passes import MemoryFormatPass
 
-        # Apply channels_last format for SD480 optimization
+        # Apply channels_last format for generic ARM optimization
         memory_pass = MemoryFormatPass(torch.channels_last)
         optimized_graph = memory_pass(edge_program)
 
-        print("✅ Memory format optimized for Snapdragon 480 (NHWC)")
+        print("✅ Memory format optimized for ARM/MediaTek (NHWC)")
         return optimized_graph
 
     except Exception as e:
@@ -210,14 +210,14 @@ def run_lfn_xnnpack_pipeline(edge_program):
     print("   ✅ Cleanup pass applied to all methods")
 
     # Step 2: Apply memory format optimization
-    print("   📱 Applying Snapdragon 480 memory format optimization...")
+    print("   📱 Applying ARM/MediaTek memory format optimization...")
     try:
         # For EdgeProgramManager, we need to apply to the exported programs
         for method_name in edge_program.methods:
             exported_prog = edge_program.exported_program(method_name)
             graph_module = exported_prog.graph_module
 
-            # Apply channels_last format for SD480 optimization
+            # Apply channels_last format for generic ARM optimization
             try:
                 from executorch.exir.passes import MemoryFormatPass
                 memory_pass = MemoryFormatPass(torch.channels_last)
