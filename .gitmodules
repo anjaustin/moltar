@@ -1,3 +1,8 @@
 [submodule "research/llama.cpp"]
 	path = research/llama.cpp
 	url = https://github.com/ggerganov/llama.cpp.git
+
+[submodule "research/spaceghost/executorch"]
+	path = research/spaceghost/executorch
+	url = https://github.com/pytorch/executorch.git
+	ignore = untracked
