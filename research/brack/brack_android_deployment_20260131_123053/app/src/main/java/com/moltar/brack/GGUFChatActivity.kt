@@ -16,6 +16,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.Locale
 
 class GGUFChatActivity : AppCompatActivity() {
 
@@ -55,6 +56,7 @@ class GGUFChatActivity : AppCompatActivity() {
     // Native methods
     private external fun nativeGetModelResponse(prompt: String): String
     private external fun nativeInitVulkan(): Boolean
+    private external fun nativeLoadGGUFModel(path: String): String
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -115,58 +117,34 @@ class GGUFChatActivity : AppCompatActivity() {
         try {
             appendToChat("🔍 Scanning for deployed GGUF models...", "System")
 
-            val modelFound = withContext(Dispatchers.IO) {
-                // Check for our deployed models (priority order)
-                val lfn350Path = "/data/local/tmp/lfm350_test/LFM2-350M/model.pte"
-                val lfm700mPath = "/data/local/tmp/lfm700m_gguf_test/model.gguf"
-                val lfm1200Path = "/data/local/tmp/gguf_lfm1200_test/model.gguf"
-
-                when {
-                    File(lfm700mPath).exists() -> {
-                        appendToChat("✅ Found LFM2-700M-GGUF model (recommended)", "System")
-                        "LFM700M"
-                    }
-                    File(lfm1200Path).exists() -> {
-                        appendToChat("✅ Found LFM2.5-1.2B-GGUF model", "System")
-                        "LFM1200"
-                    }
-                    File(lfn350Path).exists() -> {
-                        appendToChat("✅ Found LFN350 test model", "System")
-                        appendToChat("📝 This is a mock model for testing the interface", "System")
-                        "LFN350"
-                    }
-                    else -> {
-                        appendToChat("❌ No models found in expected locations", "System")
-                        appendToChat("Deploy models with:", "System")
-                        appendToChat("• LFN350: deploy_lfm350_device.sh", "System")
-                        appendToChat("• LFM700M: deploy_lfm700m_gguf.py", "System")
-                        null
-                    }
-                }
+            val modelPath = withContext(Dispatchers.IO) {
+                val baseDir = getExternalFilesDir(null)
+                val candidates = listOf(
+                    File(baseDir, "lfm2-700m.gguf"),
+                    File(baseDir, "LFM2-700M.gguf"),
+                    File(baseDir, "model.gguf"),
+                )
+                candidates.firstOrNull { it.exists() }?.absolutePath
             }
 
-            when (modelFound) {
-                "LFN350" -> {
-                    appendToChat("🚀 Initializing LFN350 (Test Model) for chat...", "System")
-                    appendToChat("⚠️  Note: This is a mock model for testing purposes", "System")
-                    appendToChat("Expected performance: ~50-100ms (simulated)", "System")
-                    appendToChat("You can now chat with the test model!", "System")
-                    appendToChat("💡 For real AI, use LFM700M or LFM1.2B models", "System")
-                }
-                "LFM700M" -> {
-                    appendToChat("🚀 Initializing LFM2-700M (GGUF) for chat...", "System")
-                    appendToChat("Expected performance: ~1.7 tokens/second", "System")
-                    appendToChat("You can now chat with the Liquid Foundation Model!", "System")
-                }
-                "LFM1200" -> {
-                    appendToChat("🚀 Initializing LFM2.5-1.2B (GGUF) for chat...", "System")
-                    appendToChat("Expected performance: ~1 token/second", "System")
-                    appendToChat("You can now chat with the Liquid Foundation Model!", "System")
-                }
-                else -> {
-                    appendToChat("💡 To deploy models, run from computer:", "System")
-                    appendToChat("python research/brack/deploy_lfm700m_gguf.py", "System")
-                }
+            if (modelPath == null) {
+                val baseDir = getExternalFilesDir(null)?.absolutePath ?: "(unavailable)"
+                appendToChat("❌ No GGUF model found in app storage.", "System")
+                appendToChat("Expected one of: lfm2-700m.gguf / LFM2-700M.gguf / model.gguf", "System")
+                appendToChat("Model directory: $baseDir", "System")
+                appendToChat("💡 Deploy from computer with adb push into that directory.", "System")
+                return
+            }
+
+            appendToChat("✅ Found GGUF model: $modelPath", "System")
+            appendToChat("🚀 Loading LFM2-700M (GGUF) via native loader...", "System")
+
+            val loadResult = withContext(Dispatchers.IO) { nativeLoadGGUFModel(modelPath) }
+            if (loadResult.startsWith("OK")) {
+                appendToChat("✅ $loadResult", "System")
+                appendToChat("You can now chat. (Inference integration is next.)", "System")
+            } else {
+                appendToChat("❌ Model load failed: $loadResult", "System")
             }
 
         } catch (e: Exception) {
@@ -189,7 +167,7 @@ class GGUFChatActivity : AppCompatActivity() {
 
             val response = withContext(Dispatchers.IO) {
                 // Record start time
-                val startTime = performanceMonitor?.recordInferenceStart() ?: System.nanoTime()
+                performanceMonitor?.recordInferenceStart()
                 
                 // CALL NATIVE C++ CODE
                 val result = nativeGetModelResponse(userMessage)
