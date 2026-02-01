@@ -1,0 +1,64 @@
+#version 450
+
+// A tiny "TriX chip" demo:
+// output = input + state
+// next_state = output
+//
+// This is deliberately simple: it validates the channel semantics
+// (shared buffers + signal-based coordination), before attempting LFM2.
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(std430, binding = 0) buffer InputBuf {
+  float in_data[];
+};
+
+layout(std430, binding = 1) buffer StateBuf {
+  float state_data[];
+};
+
+layout(std430, binding = 2) buffer OutputBuf {
+  float out_data[];
+};
+
+// Signal layout:
+// signal[0] = phase/state machine
+//   0 = idle
+//   1 = run one wave
+//   2 = done
+// signal[1] = element count (N)
+layout(std430, binding = 3) buffer SignalBuf {
+  uint signal[];
+};
+
+void main() {
+  const uint tid = gl_GlobalInvocationID.x;
+  const uint N = signal[1];
+
+  if (tid >= N) {
+    return;
+  }
+
+  // Wait until CPU sets signal[0] = 1.
+  // NOTE: This is bounded by host control; for the demo we run a single wave.
+  // For a true persistent kernel, this would be a loop (while(true)) plus
+  // a wave counter. We keep it single-shot to avoid watchdog issues.
+  while (atomicAdd(signal[0], 0u) == 0u) {
+    // spin
+  }
+
+  // Compute.
+  float y = in_data[tid] + state_data[tid];
+  out_data[tid] = y;
+  state_data[tid] = y;
+
+  // Ensure writes are visible.
+  memoryBarrierBuffer();
+  barrier();
+
+  // One thread flips done.
+  if (tid == 0u) {
+    atomicExchange(signal[0], 2u);
+  }
+}
+

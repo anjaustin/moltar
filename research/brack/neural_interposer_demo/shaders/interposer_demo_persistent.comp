@@ -1,0 +1,92 @@
+#version 450
+
+// Bounded "persistent-style" Neural Interposer demo:
+// - CPU drives a sequence of waves by setting signal[0]=1
+// - GPU processes one wave, writes output + next_state, then sets signal[0]=2
+// - CPU consumes outputs, sets signal[0]=0 (ack), increments wave_id, repeats
+// - CPU sets signal[0]=3 to stop; GPU exits shader; fence signals.
+//
+// This avoids a true while(true) kernel and gives us deterministic behavior without
+// relying on repeated vkQueueSubmit per wave.
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(std430, binding = 0) buffer InputBuf {
+  float in_data[];
+};
+
+layout(std430, binding = 1) buffer StateBuf {
+  float state_data[];
+};
+
+layout(std430, binding = 2) buffer OutputBuf {
+  float out_data[];
+};
+
+// Signal layout:
+// signal[0] = phase/state machine
+//   0 = idle/ack (CPU has consumed results; GPU may wait for next wave)
+//   1 = run one wave (CPU -> GPU)
+//   2 = done (GPU -> CPU)
+//   3 = stop (CPU -> GPU)
+// signal[1] = element count (N)
+// signal[2] = wave_id (CPU-owned monotonically increasing)
+// signal[3] = max_waves (CPU-owned)
+layout(std430, binding = 3) buffer SignalBuf {
+  uint signal[];
+};
+
+void main() {
+  const uint tid = gl_GlobalInvocationID.x;
+
+  // Read once; CPU won't change these during execution.
+  const uint N = signal[1];
+  const uint max_waves = signal[3];
+
+  if (tid >= N) {
+    return;
+  }
+
+  uint observed_wave = 0u;
+  while (observed_wave < max_waves) {
+    // Wait for CPU to request a wave (phase=1), or stop (phase=3).
+    for (;;) {
+      uint p = atomicAdd(signal[0], 0u);
+      if (p == 1u || p == 3u) break;
+    }
+    if (atomicAdd(signal[0], 0u) == 3u) {
+      break;
+    }
+
+    // Snapshot the wave id the CPU intends us to process.
+    uint wave_id = atomicAdd(signal[2], 0u);
+    // Ensure monotonic progress even if CPU misbehaves.
+    if (wave_id < observed_wave) {
+      wave_id = observed_wave;
+    }
+
+    // Compute for this wave.
+    float y = in_data[tid] + state_data[tid];
+    out_data[tid] = y;
+    state_data[tid] = y;
+
+    memoryBarrierBuffer();
+    barrier();
+
+    // One thread marks "done".
+    if (tid == 0u) {
+      atomicExchange(signal[0], 2u);
+      observed_wave = wave_id + 1u;
+    }
+
+    // Wait for CPU to acknowledge (phase=0) or stop (phase=3).
+    for (;;) {
+      uint p = atomicAdd(signal[0], 0u);
+      if (p == 0u || p == 3u) break;
+    }
+    if (atomicAdd(signal[0], 0u) == 3u) {
+      break;
+    }
+  }
+}
+
