@@ -1,0 +1,65 @@
+#version 450
+
+// ShortConv pre-pass (S=1):
+//  - computes per-channel projections: B = Wb*x, C = Wc*x, Xp = Wx*x
+//  - computes Bx = B * Xp
+//  - applies depthwise ShortConv using explicit state_in and weights w_dw
+//  - writes y[i] = C[i] * conv_out[i]
+//  - writes next_state = [state_in[1], Bx]
+//
+// This produces y (pre out-projection) and state_out. A second pass applies Wout*y.
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(std430, binding = 0) readonly buffer XBuf { float x[]; };                 // [D]
+layout(std430, binding = 1) readonly buffer StateInBuf { float state_in[]; };    // [D*2]
+layout(std430, binding = 2) writeonly buffer YBuf { float y[]; };                // [D]
+layout(std430, binding = 3) writeonly buffer StateOutBuf { float state_out[]; }; // [D*2]
+
+// Projection weights, row-major [D,D]
+layout(std430, binding = 4) readonly buffer WbBuf { float Wb[]; };
+layout(std430, binding = 5) readonly buffer WcBuf { float Wc[]; };
+layout(std430, binding = 6) readonly buffer WxBuf { float Wx[]; };
+
+// Depthwise conv weights [D,3] channel-major
+layout(std430, binding = 7) readonly buffer WdwBuf { float Wdw[]; };
+
+layout(push_constant) uniform Push {
+  uint D;
+} pc;
+
+void main() {
+  uint i = gl_GlobalInvocationID.x;
+  uint D = pc.D;
+  if (i >= D) return;
+
+  // GLSL doesn't support passing SSBO arrays as pointer parameters in helper functions.
+  // Inline the dot-products.
+  float b = 0.0;
+  float cval = 0.0;
+  float xp = 0.0;
+  uint base = i * D;
+  for (uint j = 0; j < D; j++) {
+    float xj = x[j];
+    b += Wb[base + j] * xj;
+    cval += Wc[base + j] * xj;
+    xp += Wx[base + j] * xj;
+  }
+  float bx = b * xp;
+
+  // state_in layout: [s0,s1] per channel
+  float s0 = state_in[i * 2u + 0u];
+  float s1 = state_in[i * 2u + 1u];
+
+  float w0 = Wdw[i * 3u + 0u];
+  float w1 = Wdw[i * 3u + 1u];
+  float w2 = Wdw[i * 3u + 2u];
+
+  float conv_out = w0 * s0 + w1 * s1 + w2 * bx;
+  y[i] = cval * conv_out;
+
+  // next_state = [s1, bx]
+  state_out[i * 2u + 0u] = s1;
+  state_out[i * 2u + 1u] = bx;
+}
+

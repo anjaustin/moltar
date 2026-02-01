@@ -1,0 +1,74 @@
+#version 450
+
+// ShortConv chip (S=1) for LFM2-style depthwise conv with explicit state.
+//
+// Per channel i:
+//   x_with_state = [s0, s1, bx]
+//   conv_out = w0*s0 + w1*s1 + w2*bx
+//   y = c * conv_out
+//   next_state = [s1, bx]
+//
+// Layouts:
+//  - state_in/out: [D * (L-1)] with channel-major packing
+//  - weights:      [D * L]      with channel-major packing
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(std430, binding = 0) readonly buffer BxBuf {
+  float bx[];
+};
+
+layout(std430, binding = 1) readonly buffer CBuf {
+  float c[];
+};
+
+layout(std430, binding = 2) readonly buffer StateInBuf {
+  float state_in[];
+};
+
+layout(std430, binding = 3) writeonly buffer YOutBuf {
+  float y_out[];
+};
+
+layout(std430, binding = 4) writeonly buffer StateOutBuf {
+  float state_out[];
+};
+
+layout(std430, binding = 5) readonly buffer WeightsBuf {
+  float w[];
+};
+
+// Push constants:
+//  - D: channels
+//  - L: kernel length (LFM2 uses 3)
+layout(push_constant) uniform Push {
+  uint D;
+  uint L;
+} pc;
+
+void main() {
+  uint i = gl_GlobalInvocationID.x;
+  if (i >= pc.D) return;
+
+  // L is expected to be 3 in this demo; keep general indexing anyway.
+  uint L = pc.L;
+  uint S = L - 1u;
+
+  // Read state.
+  float s0 = state_in[i * S + 0u];
+  float s1 = state_in[i * S + 1u];
+  float x = bx[i];
+
+  // Read weights (w0,w1,w2).
+  float w0 = w[i * L + 0u];
+  float w1 = w[i * L + 1u];
+  float w2 = w[i * L + 2u];
+
+  float conv_out = w0 * s0 + w1 * s1 + w2 * x;
+  y_out[i] = c[i] * conv_out;
+
+  // Next state = [s1, x]
+  state_out[i * S + 0u] = s1;
+  state_out[i * S + 1u] = x;
+}
+

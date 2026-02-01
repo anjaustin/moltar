@@ -27,6 +27,9 @@ mkdir -p "${BUILD_DIR}"
 echo "Compiling shader to SPIR-V..."
 glslc -O "${ROOT_DIR}/shaders/interposer_demo.comp" -o "${BUILD_DIR}/interposer_demo.spv"
 glslc -O "${ROOT_DIR}/shaders/interposer_demo_persistent.comp" -o "${BUILD_DIR}/interposer_demo_persistent.spv"
+glslc -O "${ROOT_DIR}/shaders/shortconv_chip.comp" -o "${BUILD_DIR}/shortconv_chip.spv"
+glslc -O "${ROOT_DIR}/shaders/shortconv_pre.comp" -o "${BUILD_DIR}/shortconv_pre.spv"
+glslc -O "${ROOT_DIR}/shaders/matvec_out.comp" -o "${BUILD_DIR}/matvec_out.spv"
 
 echo "Configuring CMake (ABI=${ABI} API=${ANDROID_API})..."
 cmake -S "${ROOT_DIR}" -B "${BUILD_DIR}" \
@@ -43,4 +46,7 @@ echo "Built:"
 echo "  ${BUILD_DIR}/interposer_demo"
 echo "  ${BUILD_DIR}/interposer_demo.spv"
 echo "  ${BUILD_DIR}/interposer_demo_persistent.spv"
+echo "  ${BUILD_DIR}/shortconv_chip.spv"
+echo "  ${BUILD_DIR}/shortconv_pre.spv"
+echo "  ${BUILD_DIR}/matvec_out.spv"
 
