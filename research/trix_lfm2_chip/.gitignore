@@ -1,0 +1,32 @@
+# Build artifacts
+build/
+build-*/
+
+# Compiled objects and libraries
+*.o
+*.a
+*.so
+*.dylib
+
+# Binary outputs (built by CMake or ad-hoc g++ commands)
+# These are listed explicitly because the root .gitignore patterns
+# may not catch executables without extensions
+llama_layer_dump
+llama_layer_dump_*
+llama_logit_dump
+verify_inproj_weights
+dump_weights
+
+# Model files (large, download separately)
+*.gguf
+*.bin
+
+# Editor artifacts
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# OS artifacts
+.DS_Store

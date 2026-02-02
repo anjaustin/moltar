@@ -11,23 +11,26 @@
  *   - All layers use SwiGLU FFN: down(silu(gate) * up)
  *
  * Target: Motorola moto g power 5G (2023)
- *   - MediaTek Dimensity 930 (6x A55 + 2x A76)
- *   - PowerVR BXM-8-256 (Vulkan 1.1, 16KB shared mem, 512 invocations)
- *   - 3.5 GB LPDDR5 (UMA, shared CPU/GPU)
+ *   - MediaTek MT6855 / Dimensity 930
+ *   - 2x Cortex-A78 (big) + 6x Cortex-A55 (little)
+ *   - NEON + dotprod (asimddp), NO i8mm
+ *   - A78: L1D=64KB, L2=256KB.  A55: L1D=32KB, L2=128KB
+ *   - PowerVR BXM-8-256 (Vulkan 1.1, 16KB shared mem)
+ *   - 3.6 GB LPDDR4X-4266 (~13 GB/s theoretical bandwidth)
  *
  * Design principle:
  *   Batch=1 token generation is memory-bandwidth bound (~190 MB weight
- *   reads per token at Q4_0). The chip does NOT split work across CPU
- *   and GPU (they share the same memory bus). Instead it:
+ *   reads per token at Q4_0). The chip runs entirely on CPU with NEON
+ *   intrinsics. GPU (Vulkan) is a deferred stretch goal — CPU+NEON
+ *   should saturate the shared memory bus.
  *
- *   1. Runs a PERSISTENT Vulkan compute kernel on the PowerVR GPU
- *   2. Fuses entire layers (operator + FFN) to minimize dispatch overhead
- *   3. Uses ION coherent memory for zero-copy CPU<->GPU token streaming
- *   4. CPU handles only tokenization and sampling (trivial cost)
+ *   1. Ghost-stream NEON Q4_0 matvec kernels (LDNP weight bypass)
+ *   2. Fused operator chips (norm+matvec, SiLU+mul in single pass)
+ *   3. Spline activation tables (sigmoid 2.8x faster than libm)
+ *   4. Cache-aware tiling matched to A78/A55 L1/L2 sizes
  *
- * The goal: close the gap between measured 29ms/tok and theoretical
- * minimum 3.7ms/tok by eliminating the ~7.8x overhead from dispatch,
- * synchronization, and memory access patterns.
+ * Baseline: llama.cpp with KleidiAI = 26 tok/s generation on device
+ * Target: 40 tok/s (1.5x), stretch 52 tok/s (2x)
  *
  * Created by: Tripp + Claude
  * Date: February 1, 2026
@@ -198,8 +201,12 @@ typedef struct {
 /* ═══════════════════════════════════════════════════════════════════════════
  * ION Channel — Zero-Copy CPU<->GPU Communication
  *
- * The channel is a coherent memory region visible to both CPU and GPU.
- * CPU writes token_id + increments version.
+ * STATUS: DEFERRED. The current design runs entirely on CPU with NEON.
+ * This struct is retained for the Vulkan stretch goal (Phase 5 in ROADMAP).
+ * It is not used by any current code path.
+ *
+ * If activated, the channel would be a coherent memory region visible to
+ * both CPU and GPU. CPU writes token_id + increments version.
  * GPU reads version, runs forward pass, writes logits + increments version.
  * No syscalls. No copies. Just atomic loads/stores on shared memory.
  * ═══════════════════════════════════════════════════════════════════════════ */

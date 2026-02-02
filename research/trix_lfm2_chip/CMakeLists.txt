@@ -28,7 +28,7 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
     set(CMAKE_C_FLAGS_RELEASE "-O3 -DNDEBUG")
 
     if(ANDROID)
-        # ARM64 with dotprod + FP16 (Cortex-A55/A76 on Dimensity 930)
+        # ARM64 with dotprod + FP16 (Cortex-A55/A78 on Dimensity 930)
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=armv8.2-a+dotprod+fp16")
         # Enable auto-vectorization reports (optional, for tuning)
         # set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Rpass=loop-vectorize -Rpass-missed=loop-vectorize")
@@ -85,6 +85,24 @@ target_link_libraries(cross_correlate PRIVATE trix_lfm2 m)
 
 add_executable(compare_weights tests/compare_weights.c)
 target_link_libraries(compare_weights PRIVATE trix_lfm2 m)
+
+add_executable(dump_gguf_meta tests/dump_gguf_meta.c)
+target_link_libraries(dump_gguf_meta PRIVATE trix_lfm2 m)
+
+add_executable(test_q4_verify tests/test_q4_verify.c)
+target_link_libraries(test_q4_verify PRIVATE trix_lfm2 m)
+
+add_executable(test_prompt tests/test_prompt.c)
+target_link_libraries(test_prompt PRIVATE trix_lfm2 m)
+
+# ─── C++ tests (require llama.cpp, build separately) ───
+# See file headers in tests/*.cpp for standalone build commands.
+# These link against llama.cpp and are not part of the main build:
+#   llama_layer_dump.cpp     — eval callback activation dump
+#   llama_logit_dump.cpp     — logit extraction
+#   verify_inproj_weights.cpp — weight dequant verification
+#   dump_weights.cpp         — weight dump (segfaults, do not use)
+#   verify_weights.cpp       — incomplete analysis skeleton
 
 # ─── Install ───
 install(TARGETS trix_lfm2 ARCHIVE DESTINATION lib)
