@@ -1,0 +1,39 @@
+#version 450
+
+// Strategy C: TMU texture-based LUT with hardware LINEAR interpolation
+// sigmoid table stored as a 1D R16_SFLOAT image with VK_FILTER_LINEAR sampler.
+// The TMU does the index+lerp in fixed-function hardware — zero ALU cost.
+
+layout(local_size_x = 128) in;
+
+layout(set = 0, binding = 0) buffer Input {
+    float data[];
+} input_buf;
+
+layout(set = 0, binding = 1) buffer Output {
+    float data[];
+} output_buf;
+
+layout(set = 0, binding = 2) uniform sampler1D sigmoid_tex;
+
+layout(push_constant) uniform Params {
+    uint count;
+    float x_min;     // -8.0
+    float x_range;   //  16.0 (x_max - x_min)
+} params;
+
+void main() {
+    uint idx = gl_GlobalInvocationID.x;
+    if (idx >= params.count) return;
+
+    float x = input_buf.data[idx];
+
+    // Normalize x to [0, 1] for texture coordinate
+    float xc = clamp(x, params.x_min, params.x_min + params.x_range);
+    float tex_coord = (xc - params.x_min) / params.x_range;
+
+    // TMU does the lookup + linear interpolation in hardware
+    float result = texture(sigmoid_tex, tex_coord).r;
+
+    output_buf.data[idx] = result;
+}

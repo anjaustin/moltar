@@ -1,0 +1,14 @@
+#version 450
+
+// Minimal no-op shader for measuring dispatch latency.
+// Single invocation, writes a constant to prove it ran.
+
+layout(local_size_x = 1) in;
+
+layout(set = 0, binding = 0) buffer Output {
+    float data[];
+} output_buf;
+
+void main() {
+    output_buf.data[0] = 1.0;
+}

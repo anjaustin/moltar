@@ -1,0 +1,28 @@
+#version 450
+
+// Strategy A: Pure ALU sigmoid computation
+// sigmoid(x) = 1.0 / (1.0 + exp(-x))
+// Uses the GPU's SFU (Special Function Unit) for exp()
+
+layout(local_size_x = 128) in;
+
+layout(set = 0, binding = 0) buffer Input {
+    float data[];
+} input_buf;
+
+layout(set = 0, binding = 1) buffer Output {
+    float data[];
+} output_buf;
+
+layout(push_constant) uniform Params {
+    uint count;
+} params;
+
+void main() {
+    uint idx = gl_GlobalInvocationID.x;
+    if (idx >= params.count) return;
+
+    float x = input_buf.data[idx];
+    float s = 1.0 / (1.0 + exp(-x));
+    output_buf.data[idx] = s;
+}

@@ -1,0 +1,49 @@
+#version 450
+
+// Strategy B: Buffer-based LUT + manual linear interpolation
+// Mimics Yinsen's activation_chip pattern on GPU:
+//   - 256-entry sigmoid table in a storage buffer
+//   - Manual index compute + lerp in ALU
+
+layout(local_size_x = 128) in;
+
+layout(set = 0, binding = 0) buffer Input {
+    float data[];
+} input_buf;
+
+layout(set = 0, binding = 1) buffer Output {
+    float data[];
+} output_buf;
+
+layout(set = 0, binding = 2) buffer LUT {
+    float table[];   // 256 entries: sigmoid values from x=-8 to x=+8
+} lut;
+
+layout(push_constant) uniform Params {
+    uint count;
+    float x_min;     // -8.0
+    float x_max;     //  8.0
+    float inv_step;  // 255.0 / (x_max - x_min) = 15.9375
+} params;
+
+void main() {
+    uint idx = gl_GlobalInvocationID.x;
+    if (idx >= params.count) return;
+
+    float x = input_buf.data[idx];
+
+    // Clamp to table range
+    float xc = clamp(x, params.x_min, params.x_max);
+
+    // Compute fractional index into the 256-entry table
+    float fidx = (xc - params.x_min) * params.inv_step;
+    uint i0 = min(uint(fidx), 254u);
+    float frac = fidx - float(i0);
+
+    // Lerp between adjacent entries
+    float y0 = lut.table[i0];
+    float y1 = lut.table[i0 + 1];
+    float result = mix(y0, y1, frac);
+
+    output_buf.data[idx] = result;
+}
