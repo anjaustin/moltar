@@ -1,0 +1,69 @@
+# TMUX VERIFICATION COMMANDS FOR LFM INFERENCES
+# Run these in tmux on the Motorola device
+
+# 1. CONNECT TO DEVICE VIA TMUX
+adb shell tmux
+
+# 2. NAVIGATE TO DEPLOYMENT DIRECTORY
+cd /data/local/tmp/lfm350_neural_interposer_test
+
+# 3. VERIFY DEPLOYMENT COMPONENTS
+ls -la
+# Should show:
+# - executorch_runner (81MB)
+# - lfm2_350m_explicit_vulkan_ctx64_seq1_blockweights_v3.pte (556MB)
+# - shortconv_chip.spv (2.3KB)
+
+# 4. TEST RUNNER FUNCTIONALITY
+./executorch_runner --help
+# Should show: Flags from executorch_runner_main.cpp
+
+# 5. TEST BASIC MODEL (should work)
+echo "Testing toy Vulkan model (should work):"
+./executorch_runner --model_path /data/local/tmp/toy_vulkan.pte --num_executions=1
+# Expected: Output tensor with numerical values
+
+# 6. TEST NEURAL INTERPOSER COMPONENT
+echo "Testing shortconv smoke model (shows Neural Interposer ops):"
+./executorch_runner --model_path /data/local/tmp/smoke_shortconv3.pte --num_executions=1
+# Expected: load_method failed: 0x14 (confirms ops missing from runner)
+
+# 7. THE MAIN EVENT: LFM INFERENCE TEST
+echo "🚀 TESTING LFM 350M INFERENCE (MAIN EVENT):"
+time ./executorch_runner --model_path lfm2_350m_explicit_vulkan_ctx64_seq1_blockweights_v3.pte --num_executions=1
+
+# 8. ANALYZE RESULTS
+# If it shows "Neural Interposer executing LFM inference" - SUCCESS!
+# If it shows "Execution completed successfully" - SUCCESS!
+# If 0x23/0x14 errors - ops integration needed
+
+# 9. PERFORMANCE VERIFICATION
+echo "Checking inference time (should be <300ms):"
+# The 'time' command above will show execution time
+
+# 10. MEMORY VERIFICATION  
+echo "Checking memory usage (should be <280MB):"
+# Monitor with: watch -n 0.1 'cat /proc/meminfo | grep -E "(MemTotal|MemAvailable)"'
+
+# 11. HARDWARE VERIFICATION
+echo "Checking GPU utilization:"
+# If successful: Mali-G52 should show Vulkan activity
+
+echo "Checking ION memory:"
+ls /dev/dma_heap/
+# Should show: mtk_mm, mtk_svp_region, etc.
+
+# 12. SUCCESS CRITERIA
+echo "SUCCESS INDICATORS:"
+echo "✅ 'Neural Interposer executing' message"
+echo "✅ 'Execution completed successfully'"  
+echo "✅ Inference time <300ms"
+echo "✅ Memory usage <280MB"
+echo "✅ No 0x23/0x14 errors"
+
+# 13. IF SUCCESSFUL - CAPTURE PROOF
+echo "If successful, capture output with:"
+echo "script lfm_inference_proof.log"
+echo "time ./executorch_runner --model_path lfm2_350m_explicit_vulkan_ctx64_seq1_blockweights_v3.pte --num_executions=1"
+echo "exit"
+echo "Then: adb pull /data/local/tmp/lfm350_neural_interposer_test/lfm_inference_proof.log ."
