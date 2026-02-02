@@ -1,0 +1,31 @@
+FROM ubuntu:22.04
+
+# Install Android build dependencies
+RUN apt-get update && apt-get install -y \
+    wget \
+    unzip \
+    git \
+    cmake \
+    ninja-build \
+    clang \
+    lld \
+    python3 \
+    python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Download and install Android NDK
+ENV ANDROID_NDK_VERSION=25c
+RUN wget -q https://dl.google.com/android/repository/android-ndk-${ANDROID_NDK_VERSION}-linux.zip \
+    && unzip -q android-ndk-${ANDROID_NDK_VERSION}-linux.zip \
+    && mv android-ndk-${ANDROID_NDK_VERSION} /opt/android-ndk \
+    && rm android-ndk-${ANDROID_NDK_VERSION}-linux.zip
+
+ENV ANDROID_NDK=/opt/android-ndk
+
+# Set up Android kernel headers (for ION support)
+RUN mkdir -p /usr/include/linux \
+    && wget -q https://raw.githubusercontent.com/torvalds/linux/master/include/uapi/linux/ion.h -O /usr/include/linux/ion.h \
+    && wget -q https://raw.githubusercontent.com/torvalds/linux/master/include/uapi/linux/dma-buf.h -O /usr/include/linux/dma-buf.h
+
+# Create workspace
+WORKDIR /workspace
