@@ -313,7 +313,7 @@ class Phase3DeviceVerifier:
                 latency = self._run_single_latency_test(seq_len)
                 if latency > 0:
                     latencies.append(latency)
-                    print(".1f"
+                    print(".1f")
                 else:
                     print(f"   Run {run + 1}: Failed")
 
@@ -327,7 +327,7 @@ class Phase3DeviceVerifier:
                 latency_results['min_latencies'].append(min_latency)
                 latency_results['max_latencies'].append(max_latency)
 
-                print(".1f"
+                print(".1f")
                 # Check against target (scale target for sequence length)
                 scaled_target = config['target_latency_ms'] * (seq_len / 256)  # Normalize to 256
                 if avg_latency > scaled_target:
@@ -344,7 +344,7 @@ class Phase3DeviceVerifier:
             overall_avg = sum(latency_results['average_latencies']) / len(latency_results['average_latencies'])
             latency_results['target_met'] = overall_avg < config['target_latency_ms']
 
-            print(".1f"
+            print(".1f")
         return latency_results
 
     def _run_single_latency_test(self, seq_len: int) -> float:
@@ -503,7 +503,9 @@ class Phase3DeviceVerifier:
                 accuracy_results['accuracy_degradation_percent'] = (1 - accuracy_results['cosine_similarity']) * 100
                 accuracy_results['target_met'] = accuracy_results['cosine_similarity'] > config['accuracy_threshold']
 
-                print(".4f"                print(".2f"                print(f"   Target met: {'✅' if accuracy_results['target_met'] else '❌'}")
+                print(".4f")
+                print(".2f")
+                print(f"   Target met: {'✅' if accuracy_results['target_met'] else '❌'}")
 
                 if not accuracy_results['target_met']:
                     degradation = accuracy_results['accuracy_degradation_percent']
@@ -575,7 +577,10 @@ class Phase3DeviceVerifier:
 
             hardware_results['targets_met'] = gpu_ok and temp_ok and power_ok
 
-            print(".1f"            print(".1f"            print(".0f"            print(f"   All targets met: {'✅' if hardware_results['targets_met'] else '❌'}")
+            print(".1f")
+            print(".1f")
+            print(".0f")
+            print(f"   All targets met: {'✅' if hardware_results['targets_met'] else '❌'}")
 
             # Record falsification findings
             if not gpu_ok:
@@ -671,8 +676,8 @@ class Phase3DeviceVerifier:
         # Save results
         self._save_verification_results(verification_results)
 
-        print("
-🎯 VERIFICATION COMPLETE"        print(f"Overall Success: {'✅' if verification_results['overall_success'] else '❌'}")
+        print("\n🎯 VERIFICATION COMPLETE")
+        print(f"Overall Success: {'✅' if verification_results['overall_success'] else '❌'}")
         print(f"Falsification Findings: {len(verification_results['falsification_report'])}")
         print(f"Recommendations: {len(verification_results['recommendations'])}")
 
@@ -680,8 +685,8 @@ class Phase3DeviceVerifier:
 
     def _analyze_results(self, results: Dict[str, Any]):
         """Analyze test results and generate falsification findings"""
-        print("
-📊 Analyzing results..."        falsification_report = []
+        print("\n📊 Analyzing results...")
+        falsification_report = []
 
         # Latency analysis
         latency = results['latency_tests']
@@ -812,8 +817,8 @@ def main():
     results = verifier.run_complete_verification()
 
     # Print summary
-    print("
-🎯 VERIFICATION SUMMARY"    print(f"Device Connection: {'✅' if results['device_connection'] else '❌'}")
+    print("\n🎯 VERIFICATION SUMMARY")
+    print(f"Device Connection: {'✅' if results['device_connection'] else '❌'}")
     print(f"Pipeline Deployment: {'✅' if results['deployment'] else '❌'}")
 
     if results['device_connection'] and results['deployment']:
