@@ -55,6 +55,12 @@ def main() -> None:
     parser.add_argument("--output_name", default="lfm2_explicit_vulkan", help="base filename without extension")
     parser.add_argument("--max_context_len", type=int, default=256)
     parser.add_argument("--seq_len", type=int, default=1)
+    parser.add_argument(
+        "--no_vulkan",
+        action="store_true",
+        default=False,
+        help="Do not delegate any subgraphs to Vulkan (CPU-only portable execution).",
+    )
     parser.add_argument("--force_fp16", action="store_true", default=True)
     parser.add_argument(
         "--buffer_limit",
@@ -131,23 +137,28 @@ def main() -> None:
     print("Exporting with explicit state (no internal mutation).")
     ep = export(model, (tokens, input_pos, conv_state, k_cache, v_cache), strict=True)
 
-    compile_options = {}
-    if args.force_fp16:
-        compile_options["force_fp16"] = True
-    compile_options["buffer_limit"] = args.buffer_limit
-    if args.small_texture_limits:
-        compile_options["small_texture_limits"] = True
+    if args.no_vulkan:
+        edge_program = to_edge_transform_and_lower(ep)
+    else:
+        compile_options = {}
+        if args.force_fp16:
+            compile_options["force_fp16"] = True
+        compile_options["buffer_limit"] = args.buffer_limit
+        if args.small_texture_limits:
+            compile_options["small_texture_limits"] = True
 
-    operator_blocklist = None
-    if args.operator_blocklist.strip():
-        operator_blocklist = [
-            _resolve_opkey(s) for s in args.operator_blocklist.split(",") if s.strip()
-        ]
+        operator_blocklist = None
+        if args.operator_blocklist.strip():
+            operator_blocklist = [
+                _resolve_opkey(s) for s in args.operator_blocklist.split(",") if s.strip()
+            ]
 
-    edge_program = to_edge_transform_and_lower(
-        ep,
-        partitioner=[VulkanPartitioner(compile_options, operator_blocklist=operator_blocklist)],
-    )
+        edge_program = to_edge_transform_and_lower(
+            ep,
+            partitioner=[
+                VulkanPartitioner(compile_options, operator_blocklist=operator_blocklist)
+            ],
+        )
     exec_prog = edge_program.to_executorch()
 
     os.makedirs(args.output_dir, exist_ok=True)

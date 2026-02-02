@@ -20,7 +20,7 @@ Through rigorous falsification testing, SpaceGhost has identified and confirmed 
 
 ## Background: REQ-XNN-001 Investigation
 
-SpaceGhost was tasked with enabling MaxPool2d operations in XNNPack for Liquid AI model deployment on Snapdragon 480. The investigation revealed:
+SpaceGhost was tasked with enabling MaxPool2d operations in XNNPack for Liquid AI model deployment on MediaTek hardware. The investigation revealed:
 
 ### ✅ **Our Implementation (Working Correctly)**
 1. **Root Cause Identified:** MaxPool2d returns `(values, indices)` tuple causing convexity violations

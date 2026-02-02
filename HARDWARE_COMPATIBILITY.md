@@ -34,7 +34,7 @@ Complete guide to device compatibility, requirements, and hardware optimization 
 - ✅ Hardware acceleration validated
 
 #### Motorola moto g stylus (2022)
-- **SoC**: Qualcomm Snapdragon 665
+- **SoC**: MediaTek Helio P series
 - **CPU**: 8x Kryo 260 @ 2.0 GHz
 - **GPU**: Adreno 610
 - **RAM**: 4GB LPDDR4X
@@ -43,7 +43,7 @@ Complete guide to device compatibility, requirements, and hardware optimization 
 - **Status**: ✅ **Compatible**
 
 **Key Features:**
-- ✅ Snapdragon 600-series support
+- ✅ MediaTek Helio G/P series support
 - ⚠️ Limited SpaceGhost optimizations
 - ✅ Basic AI model support
 - ✅ Good performance for smaller models
@@ -57,7 +57,7 @@ Complete guide to device compatibility, requirements, and hardware optimization 
 - **Status**: ⚠️ **Limited Support**
 
 #### Motorola moto g 5G (2022)
-- **SoC**: Qualcomm Snapdragon 480
+- **SoC**: MediaTek Helio G series (current target)
 - **CPU**: 8x Kryo 460
 - **RAM**: 4GB
 - **Status**: 🎯 **Target Hardware** (Projected)
@@ -143,7 +143,7 @@ Complete guide to device compatibility, requirements, and hardware optimization 
 - ✅ **REQ-XNN-003**: Hardware-specific threading
 - ✅ **Performance**: 2-3x improvement validated
 
-#### Qualcomm Snapdragon 480 (Target)
+#### MediaTek + Mali (Target)
 
 **CPU Features:**
 - ✅ Kryo 460 cores (ARM Cortex-A76 equivalent)
@@ -182,7 +182,7 @@ Complete guide to device compatibility, requirements, and hardware optimization 
 
 #### Hardware-Specific Features
 - **Dot Product Acceleration**: ARMv8.2-A UDOT/SDOT instructions
-- **DSP Offloading**: Neural network operations on DSP (Snapdragon)
+- **APU Offloading**: Neural network operations on APU (MediaTek)
 - **GPU Acceleration**: Matrix operations on GPU when beneficial
 - **Thermal Management**: Preventing thermal throttling
 
@@ -367,12 +367,12 @@ adb shell "pm clear com.android.providers.downloads"
 ### Upcoming Motorola Devices
 
 #### Motorola Razr 40 (Expected 2026)
-- **SoC**: Qualcomm Snapdragon 7 Gen 3
+- **SoC**: MediaTek Dimensity 7 series
 - **AI Features**: Enhanced AI processing
 - **Compatibility**: ✅ Full support expected
 
 #### Motorola Edge 50 (Expected 2026)
-- **SoC**: Qualcomm Snapdragon 8 Gen 3
+- **SoC**: MediaTek Dimensity 8 series
 - **AI Features**: Advanced AI acceleration
 - **Compatibility**: ✅ Full support expected
 

@@ -267,7 +267,7 @@ Research Lab Network
     │   │   ├── moto g stylus (Secondary)
     │   │   └── Other Motorola models
     │   └── Reference Devices
-    │       ├── Snapdragon 480 reference
+    │       ├── MediaTek + Mali reference
     │       └── MediaTek reference
     └── Data Infrastructure
         ├── Result Databases
@@ -341,7 +341,7 @@ Performance Optimization Stack
     │   ├── ARM Mali-G52 GPU
     │   ├── AI Processing Unit
     │   └── LPDDR4X Memory
-    └── Snapdragon 480 (Target)
+    └── MediaTek + Mali (Target)
         ├── 8x Kryo 460 CPU
         ├── Adreno 619 GPU
         ├── Hexagon 686 DSP

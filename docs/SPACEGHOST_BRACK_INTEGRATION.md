@@ -11,7 +11,7 @@ Our current, repeatedly tested on-device target is:
 - **SoC**: MediaTek Dimensity 930 (MT6855V)
 - **GPU**: PowerVR BXM-8-256
 
-Some SpaceGhost concepts and benchmarks also mention Snapdragon/XNNPack-DSP; treat those as **device-specific** and not automatically transferable.
+Some SpaceGhost concepts and benchmarks are optimized for specific hardware; adapt them for **MediaTek + Mali** platform.
 
 ## Architecture Overview
 
@@ -68,10 +68,10 @@ exec_program = partitioned.to_executorch()
 - **Impact**: Reduced quantization overhead, improved memory efficiency
 - **Validation**: Core fusion logic validated through direct testing
 
-#### REQ-XNN-003: Snapdragon 480 DSP Optimization (Pending)
+#### REQ-XNN-003: MediaTek Mali GPU Optimization
 **Device-specific** workstream.
 
-- **Target**: Hardware-specific kernel optimizations (e.g., Snapdragon DSP paths)
+- **Target**: Hardware-specific kernel optimizations (e.g., MediaTek Mali GPU paths)
 - **Features**: Dot Product instructions, thread pinning, cache optimization
 - **Expected**: Additional performance gains on compatible hardware
 
@@ -182,7 +182,7 @@ cd ../brack
 
 ## Future Optimizations (REQ-XNN-003)
 
-### Planned Snapdragon 480 Enhancements
+### Planned MediaTek + Mali Enhancements
 
 1. **Dot Product Kernel Optimization**
    - UDOT/SDOT instruction utilization
@@ -249,4 +249,4 @@ cd ../brack
 
 ---
 
-*This integration enables Liquid AI LFN models to achieve optimal performance on Motorola Snapdragon devices through SpaceGhost's framework-level ExecuTorch improvements.*
+*This integration enables Liquid AI LFN models to achieve optimal performance on Motorola MediaTek devices through SpaceGhost's framework-level ExecuTorch improvements.*

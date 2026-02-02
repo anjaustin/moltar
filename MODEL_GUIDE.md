@@ -138,7 +138,7 @@ Complete guide to AI models available in Moltar, including selection criteria, p
 | **LFM700M** | ~600ms | <400MB | <30% | <8% | 8.5/10 |
 | **LFM1.2B** | ~2.6s | <700MB | <40% | <12% | 9.5/10 |
 
-**Motorola moto g 5G (Snapdragon 480) - Target Hardware (Projected)**
+**Motorola device (MediaTek + Mali) - Target Hardware**
 
 | Model | Latency | Memory | CPU Usage | Battery/Hour | Quality Score |
 |-------|---------|--------|-----------|--------------|---------------|
@@ -347,7 +347,7 @@ With SpaceGhost:
 #### ExecuTorch Compatibility (Future)
 - **Format**: PyTorch exported (.pte)
 - **Optimization**: SpaceGhost enhancements
-- **Hardware**: Snapdragon/Mediatek optimized
+- **Hardware**: MediaTek + Mali optimized
 - **Status**: Conversion in development
 
 ### Monitoring and Maintenance

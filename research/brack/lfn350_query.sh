@@ -53,7 +53,7 @@ elif echo "$INPUT_LOWER" | grep -q "motorola\|device\|hardware\|mobile"; then
     echo "I'm optimized for Motorola devices with MediaTek MT6855V processors, providing efficient AI processing on mobile hardware while maintaining philosophical reasoning capabilities."
 
 elif echo "$INPUT_LOWER" | grep -q "spaceghost\|optimization"; then
-    echo "SpaceGhost provides hardware-specific optimizations for ExecuTorch, enabling efficient AI inference on Snapdragon and MediaTek platforms with significant performance improvements."
+    echo "SpaceGhost provides hardware-specific optimizations for ExecuTorch, enabling efficient AI inference on MediaTek platforms with significant performance improvements."
 
 else
     echo "As LFN350, I can help explore philosophical concepts, consciousness studies, AI architecture, and reasoning patterns. Try asking about reflective recursion, awareness, or my capabilities."

@@ -134,7 +134,7 @@ class MainActivity : AppCompatActivity() {
                 // Start performance monitoring
                 val startTime = performanceMonitor?.recordInferenceStart() ?: System.nanoTime()
 
-                // Configure generation parameters optimized for Snapdragon 480
+                // Configure generation parameters optimized for MediaTek + Mali
                 val config = LLMModule.LLMConfig().apply {
                     maxSeqLen = 2048
                     temperature = 0.7f

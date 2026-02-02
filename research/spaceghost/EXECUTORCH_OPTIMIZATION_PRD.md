@@ -12,12 +12,12 @@
 ## Executive Summary
 
 ### Objective
-Transform ExecuTorch from a promising but underperforming mobile inference platform into a competitive, high-performance solution for Liquid Foundation Models (LFMs) on Snapdragon 480 hardware, closing the documented 2-3x performance gap with alternatives like PyTorch Mobile and ONNX Runtime.
+Transform ExecuTorch from a promising but underperforming mobile inference platform into a competitive, high-performance solution for Liquid Foundation Models (LFMs) on MediaTek hardware, closing the documented 2-3x performance gap with alternatives like PyTorch Mobile and ONNX Runtime.
 
 ### Business Impact
 - **Performance Gains**: 40-60% improvement in inference latency and throughput
 - **Memory Efficiency**: 40-50% reduction in peak memory usage
-- **Hardware Utilization**: Maximize Snapdragon 480 DSP capabilities (15 TOPS target)
+- **Hardware Utilization**: Maximize MediaTek APUs capabilities (targeting optimal Mali GPU utilization)
 - **Market Position**: Establish ExecuTorch as premier platform for mobile Liquid AI
 
 ### Success Metrics
@@ -42,7 +42,7 @@ Based on comprehensive web research of GitHub issues, technical reviews, and com
 #### Critical Issues Identified
 1. **XNNPack Backend Failures**: 2-3x performance degradation, missing operators (MaxPool2d), quantization chain duplication
 2. **Memory Management Inefficiencies**: 2x higher peak usage than theoretical minimum, poor memory planning
-3. **DSP Underutilization**: <50% of Snapdragon 480 Hexagon DSP capacity (6-9 TOPS vs 15 TOPS theoretical)
+3. **GPU Underutilization**: <50% of MediaTek Mali GPU capacity (underutilized compute resources)
 4. **Quantization Problems**: Accuracy degradation, limited debugging tools, calibration challenges
 5. **Setup and Development Friction**: Build system failures, immature tooling, weeks-long LLM deployment
 
@@ -72,7 +72,7 @@ Based on comprehensive web research of GitHub issues, technical reviews, and com
 ## Solution Overview
 
 ### Vision
-Create a comprehensive optimization framework for ExecuTorch that addresses documented bottlenecks while maintaining full compatibility with the existing ecosystem. Focus on Snapdragon 480 hardware and Liquid Foundation Model requirements.
+Create a comprehensive optimization framework for ExecuTorch that addresses documented bottlenecks while maintaining full compatibility with the existing ecosystem. Focus on MediaTek hardware and Liquid Foundation Model requirements.
 
 ### ExecuTorch + Soft‑Chip Track (Neural Interposer)
 In parallel with “classic” kernel/backend optimizations, we maintain a hybrid track where ExecuTorch remains the runtime while selected hot-path ops are accelerated via our **soft‑chip** execution path.
@@ -83,7 +83,7 @@ In parallel with “classic” kernel/backend optimizations, we maintain a hybri
 ### Core Principles
 1. **Data-Driven Development**: All optimizations based on empirical performance measurements
 2. **Scientific Rigor**: Falsifiable hypotheses with statistical validation
-3. **Hardware-Specific**: Optimized for Snapdragon 480 architecture
+3. **Hardware-Specific**: Optimized for MediaTek + Mali architecture
 4. **Liquid AI Focus**: Specialized support for Liquid Foundation Models
 5. **Backward Compatibility**: Maintain existing API and functionality
 
@@ -111,7 +111,7 @@ SpaceGhost Optimization Framework
 ```
 
 ### Key Innovations
-1. **Custom DSP Kernels**: Snapdragon Hexagon-optimized kernels for Liquid operations
+1. **Custom GPU Kernels**: MediaTek Mali-optimized Vulkan kernels for Liquid operations
 2. **Advanced Memory Planning**: Graph-aware memory allocation with LFM-specific layouts
 3. **Backend Optimization**: XNNPack improvements with complete operator coverage
 4. **Research Instrumentation**: Comprehensive profiling and monitoring tools
@@ -128,7 +128,7 @@ SpaceGhost Optimization Framework
 #### Functional Requirements
 - **REQ-XNN-001**: Implement missing operators (MaxPool2d, advanced attention mechanisms)
 - **REQ-XNN-002**: Fix dynamic quantization chain duplication
-- **REQ-XNN-003**: Optimize kernel implementations for Snapdragon 480
+- **REQ-XNN-003**: Optimize kernel implementations for MediaTek Mali
 - **REQ-XNN-004**: Add backend delegation efficiency improvements
 - **REQ-XNN-005**: Implement operator coverage validation framework
 
@@ -139,7 +139,7 @@ SpaceGhost Optimization Framework
 - **PERF-XNN-004**: Reduce quantization overhead by 30%
 
 #### Technical Specifications
-- Target Snapdragon 480 Hexagon DSP architecture
+- Target MediaTek Mali GPU architecture
 - Maintain FP32, FP16, and INT8 precision support
 - Preserve existing XNNPack API compatibility
 - Add comprehensive operator test coverage
@@ -181,7 +181,7 @@ SpaceGhost Optimization Framework
 - **REQ-DSP-005**: Integrate DSP workload balancing with CPU/GPU
 
 #### Performance Requirements
-- **PERF-DSP-001**: Achieve >12 TOPS utilization on Snapdragon 480
+- **PERF-GPU-001**: Achieve optimal Mali GPU utilization on MediaTek hardware
 - **PERF-DSP-002**: Reduce LFM inference latency by 35%
 - **PERF-DSP-003**: Improve power efficiency by 30%
 - **PERF-DSP-004**: Enable real-time LFM processing (<100ms)
@@ -285,7 +285,7 @@ SpaceGhost Optimization Framework
 ### Validation Framework
 - **Automated Testing**: Continuous performance regression testing
 - **Statistical Validation**: p < 0.05 significance for all claims
-- **Cross-Platform Verification**: Validate on multiple Snapdragon devices
+- **Cross-Platform Verification**: Validate on multiple MediaTek devices
 - **Real-World Testing**: Deploy in Brack for end-to-end validation
 
 ---
@@ -355,7 +355,7 @@ SpaceGhost Optimization Framework
 ### Technical Risks
 
 #### High Risk
-- **Hardware Compatibility Issues**: Snapdragon 480 specific optimizations may not generalize
+- **Hardware Compatibility Issues**: MediaTek + Mali specific optimizations may not generalize
 - **Stability Degradation**: Performance optimizations could introduce bugs
 - **API Compatibility Breaks**: Changes might affect existing ExecuTorch functionality
 
@@ -373,7 +373,7 @@ SpaceGhost Optimization Framework
 
 #### Technical Mitigation
 - **Incremental Implementation**: Test each optimization independently
-- **Comprehensive Testing**: Validate on multiple Snapdragon devices and models
+- **Comprehensive Testing**: Validate on multiple MediaTek devices and models
 - **Fallback Mechanisms**: Maintain compatibility with standard ExecuTorch
 - **Version Control**: Git-based rollback capabilities for all changes
 
@@ -395,7 +395,7 @@ SpaceGhost Optimization Framework
 
 ### Technical Dependencies
 - **ExecuTorch Repository**: Access to full source code and development environment
-- **Snapdragon 480 Hardware**: Physical devices for testing and validation
+- **MediaTek Hardware**: Physical devices for testing and validation
 - **Android NDK/SDK**: For mobile deployment and testing
 - **Qualcomm Development Tools**: DSP development and profiling tools
 - **Liquid AI Resources**: LFM model specifications and requirements
@@ -408,7 +408,7 @@ SpaceGhost Optimization Framework
 
 ### Infrastructure Requirements
 - **Development Environment**: High-performance workstations for compilation and testing
-- **Testing Devices**: Multiple Snapdragon 480 devices for validation
+- **Testing Devices**: Multiple MediaTek devices for validation
 - **Cloud Resources**: GPU instances for baseline comparisons and testing
 - **Profiling Tools**: Performance monitoring and debugging infrastructure
 
@@ -456,7 +456,7 @@ The SpaceGhost ExecuTorch Optimization Initiative represents a comprehensive, da
 
 ### Key Success Factors
 1. **Scientific Rigor**: All optimizations validated with statistical significance
-2. **Hardware Focus**: Snapdragon 480 specific optimizations for maximum impact
+2. **Hardware Focus**: MediaTek + Mali specific optimizations for maximum impact
 3. **Liquid AI Integration**: Specialized support for Liquid Foundation Models
 4. **Ecosystem Compatibility**: Maintain full backward compatibility and integration
 5. **Research Transparency**: Comprehensive documentation and falsifiable claims
@@ -464,7 +464,7 @@ The SpaceGhost ExecuTorch Optimization Initiative represents a comprehensive, da
 ### Long-term Vision
 Establish SpaceGhost as the definitive optimization framework for ExecuTorch, enabling:
 - Real-time Liquid AI interaction on mobile devices
-- Maximum hardware utilization across Snapdragon platforms
+- Maximum hardware utilization across MediaTek platforms
 - Seamless integration with the broader AI ecosystem
 - Research-driven continuous improvement
 

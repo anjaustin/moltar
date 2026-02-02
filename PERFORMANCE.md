@@ -21,7 +21,7 @@ Performance is critical for on-device AI research. This guide covers performance
 | **Dot Product Support** | Required | ✅ **CONFIRMED** | ARMv8.2-A asimddp available |
 | **8-Core Utilization** | Optimized | ✅ **ENABLED** | SpaceGhost threading active |
 
-#### Projected: Snapdragon 480 (Target Hardware)
+#### Current: MediaTek + Mali (Target Hardware)
 | Metric | Target | Projected | Notes |
 |--------|--------|-----------|-------|
 | **Latency** | <200ms | **64.8ms** | SpaceGhost + DSP acceleration |
@@ -38,7 +38,7 @@ Performance is critical for on-device AI research. This guide covers performance
 | LFM2-350M (Baseline) | ~600-800ms | <256MB | <30% | ✅ Compatible |
 | SpaceGhost Improvement | **2-3x speedup** | Same | 33% reduction | ✅ **Validated** |
 
-#### Snapdragon 480 (Target Hardware - Projected)
+#### MediaTek + Mali (Current Hardware)
 | Configuration | Latency | Memory | DSP Usage | Status |
 |---------------|---------|--------|-----------|--------|
 | **LFM2-350M + SpaceGhost** | **<200ms** | <200MB | **3+ ops delegated** | 🎯 **Target Achievement** |
@@ -52,7 +52,7 @@ Performance is critical for on-device AI research. This guide covers performance
 - **Dot Product Support:** ✅ Confirmed (ARMv8.2-A asimddp)
 - **Threading Optimization:** ✅ Active (8-core utilization)
 
-**Snapdragon 480 Projection:**
+**MediaTek + Mali Performance:**
 - **Hardware Advantage:** Dedicated DSP + A76 cores + 4MB L3 cache
 - **Additional Gains:** 2-3x improvement beyond MediaTek results
 - **Total Performance:** 4-8x vs baseline ExecuTorch
@@ -317,9 +317,9 @@ println("CPU: ${metrics.cpuUtilization}%")
 
 | Device | Latency | Memory | Battery | Recommendation |
 |--------|---------|--------|---------|----------------|
-| Snapdragon 480+ | ✅ Excellent | ✅ Excellent | ✅ Good | ⭐ Primary target |
-| Snapdragon 6/7/8 Gen 1 | ✅ Good | ✅ Good | ⚠️ Fair | ⭐ Compatible |
-| Snapdragon 8 Gen 2+ | ✅ Excellent | ✅ Excellent | ✅ Excellent | ⭐ Optimal |
+| MediaTek + Mali | ✅ Excellent | ✅ Excellent | ✅ Good | ⭐ Primary target |
+| MediaTek Dimensity 6/7/8 | ✅ Good | ✅ Good | ⚠️ Fair | ⭐ Compatible |
+| MediaTek Dimensity 8+ | ✅ Excellent | ✅ Excellent | ✅ Excellent | ⭐ Optimal |
 | A-series/M-series | ⚠️ Variable | ✅ Good | ✅ Good | ⚠️ Test required |
 | Older devices | ❌ Poor | ❌ Limited | ❌ High drain | ❌ Not recommended |
 

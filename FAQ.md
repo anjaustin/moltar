@@ -83,7 +83,7 @@ Currently validated for:
 - USB debugging enabled devices
 
 Notes:
-- Some documentation and optimization workstreams mention Snapdragon/DSP paths; treat those as **device-specific** and not automatically applicable to the Dimensity/PowerVR device class.
+- Some documentation and optimization workstreams mention specific hardware paths; adapt them for **MediaTek + Mali** device class.
 - For the authoritative compatibility matrix, see `HARDWARE_COMPATIBILITY.md`.
 
 ### What AI models does Moltar support?
@@ -95,7 +95,7 @@ Currently supports:
 ### How does ExecuTorch integration work?
 
 ExecuTorch provides on-device AI inference:
-- **Hardware acceleration** on Snapdragon DSP/GPU
+- **Hardware acceleration** on MediaTek APU/GPU
 - **Low latency** inference (<200ms target)
 - **Memory efficient** operation (<256MB)
 - **Cross-platform** Android deployment
@@ -147,7 +147,7 @@ Current targets for LFM2-350M on mobile-class Android devices:
 ### What affects performance?
 
 Performance depends on:
-- **Device hardware** (Snapdragon 480+ recommended)
+- **Device hardware** (MediaTek + Mali recommended)
 - **Android version** (12+ recommended)
 - **Available RAM** (4GB+ recommended)
 - **Background processes** (minimize for testing)

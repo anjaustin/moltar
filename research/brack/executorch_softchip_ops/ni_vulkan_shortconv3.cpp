@@ -11,6 +11,8 @@
 // - This is a v0 “smoke integration” focused on correctness and stability.
 
 #include "ni_shortconv3_op.h"
+#include "ni_attention_op.h"
+#include "ni_channel.h"
 
 #include <cstdint>
 #include <cstdlib>
@@ -28,6 +30,38 @@
 namespace {
 
 static const char* kDefaultSpvPath = "/data/local/tmp/shortconv_chip.spv";
+
+// Global TriX context (shared across all ops)
+static ni_trix_context_t* g_trix_context = nullptr;
+static VkDevice g_vk_device = VK_NULL_HANDLE;
+static VkPhysicalDevice g_vk_physical_device = VK_NULL_HANDLE;
+static VkQueue g_vk_queue = VK_NULL_HANDLE;
+static std::mutex g_context_mutex;
+
+// Initialize TriX context
+static bool ensure_trix_context(VkDevice device, VkPhysicalDevice phys_device, VkQueue queue) {
+    std::lock_guard<std::mutex> lock(g_context_mutex);
+
+    if (g_trix_context) return true;
+
+    g_vk_device = device;
+    g_vk_physical_device = phys_device;
+    g_vk_queue = queue;
+
+    // LFM2-350M dimensions
+    const uint32_t hidden_dim = 1024;
+    const uint32_t state_dim = hidden_dim * 3;  // kernel_size - 1 = 3
+
+    g_trix_context = ni_trix_context_create(device, phys_device, queue, hidden_dim, state_dim);
+
+    if (!g_trix_context) {
+        ET_LOG(Error, "Failed to create TriX context");
+        return false;
+    }
+
+    ET_LOG(Info, "Initialized TriX context for Neural Interposer integration");
+    return true;
+}
 
 std::vector<uint8_t> read_file_bytes(const char* path) {
   std::ifstream f(path, std::ios::binary | std::ios::ate);
@@ -363,142 +397,49 @@ executorch::aten::Tensor& shortconv3_step_out(
   VkCtx& vk = global_vk();
   ET_KERNEL_CHECK(ctx, vk.init_ok, InvalidArgument, out);
 
-  const std::size_t bx_bytes = (std::size_t)D * sizeof(float);
-  const std::size_t c_bytes = (std::size_t)D * sizeof(float);
-  const std::size_t st_bytes = (std::size_t)D * 2 * sizeof(float);
-  const std::size_t w_bytes = (std::size_t)D * 3 * sizeof(float);
-  const std::size_t out_bytes = (std::size_t)D * sizeof(float);
+  // Initialize TriX context if needed
+  if (!ensure_trix_context(vk.dev, vk.phys, vk.queue)) {
+    ET_LOG(Error, "Failed to initialize TriX context");
+    return out;
+  }
 
-  Buf bx_b{}, c_b{}, st_in_b{}, y_b{}, st_out_b{}, w_b{};
-  VkResult r = VK_SUCCESS;
-  r = make_mapped_storage_buffer(vk, bx_bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, &bx_b);
-  ET_KERNEL_CHECK(ctx, r == VK_SUCCESS, InvalidArgument, out);
-  r = make_mapped_storage_buffer(vk, c_bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, &c_b);
-  ET_KERNEL_CHECK(ctx, r == VK_SUCCESS, InvalidArgument, out);
-  r = make_mapped_storage_buffer(vk, st_bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, &st_in_b);
-  ET_KERNEL_CHECK(ctx, r == VK_SUCCESS, InvalidArgument, out);
-  r = make_mapped_storage_buffer(vk, out_bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, &y_b);
-  ET_KERNEL_CHECK(ctx, r == VK_SUCCESS, InvalidArgument, out);
-  r = make_mapped_storage_buffer(vk, st_bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, &st_out_b);
-  ET_KERNEL_CHECK(ctx, r == VK_SUCCESS, InvalidArgument, out);
-  r = make_mapped_storage_buffer(vk, w_bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, &w_b);
-  ET_KERNEL_CHECK(ctx, r == VK_SUCCESS, InvalidArgument, out);
+  // Use TriX context for Neural Interposer execution
+  {
+    std::lock_guard<std::mutex> lock(g_context_mutex);
 
-  std::memcpy(bx_b.mapped, bx.const_data_ptr(), bx_bytes);
-  std::memcpy(c_b.mapped, c.const_data_ptr(), c_bytes);
-  std::memcpy(st_in_b.mapped, state.const_data_ptr(), st_bytes);
-  std::memcpy(w_b.mapped, w.const_data_ptr(), w_bytes);
+    if (!g_trix_context) {
+      ET_LOG(Error, "TriX context not initialized");
+      return out;
+    }
 
-  // Descriptor pool + set (per-call for v0 simplicity).
-  VkDescriptorPoolSize ps{};
-  ps.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-  ps.descriptorCount = 6;
-  VkDescriptorPoolCreateInfo dpci{};
-  dpci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-  dpci.maxSets = 1;
-  dpci.poolSizeCount = 1;
-  dpci.pPoolSizes = &ps;
-  VkDescriptorPool dpool = VK_NULL_HANDLE;
-  r = vkCreateDescriptorPool(vk.dev, &dpci, nullptr, &dpool);
-  ET_KERNEL_CHECK(ctx, r == VK_SUCCESS, InvalidArgument, out);
+    // Execute ShortConv chip via TriX context
+    const float* input_data = bx.const_data_ptr<float>();
+    const float* state_data = state.const_data_ptr<float>();
+    const float* weights_data = w.const_data_ptr<float>();
+    float* output_data = out.mutable_data_ptr<float>();
 
-  VkDescriptorSetAllocateInfo dsai{};
-  dsai.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-  dsai.descriptorPool = dpool;
-  dsai.descriptorSetCount = 1;
-  dsai.pSetLayouts = &vk.dsl;
-  VkDescriptorSet dset = VK_NULL_HANDLE;
-  r = vkAllocateDescriptorSets(vk.dev, &dsai, &dset);
-  ET_KERNEL_CHECK(ctx, r == VK_SUCCESS, InvalidArgument, out);
+    // Create temporary buffers for next state (not used in this v0)
+    std::vector<float> next_state(D * 2, 0.0f);
 
-  auto write_buf = [&](uint32_t binding, VkBuffer buf, VkDeviceSize nbytes) {
-    VkDescriptorBufferInfo bi{};
-    bi.buffer = buf;
-    bi.offset = 0;
-    bi.range = nbytes;
-    VkWriteDescriptorSet wds{};
-    wds.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    wds.dstSet = dset;
-    wds.dstBinding = binding;
-    wds.descriptorCount = 1;
-    wds.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    wds.pBufferInfo = &bi;
-    vkUpdateDescriptorSets(vk.dev, 1, &wds, 0, nullptr);
-  };
-  write_buf(0, bx_b.buf, bx_bytes);
-  write_buf(1, c_b.buf, c_bytes);
-  write_buf(2, st_in_b.buf, st_bytes);
-  write_buf(3, y_b.buf, out_bytes);
-  write_buf(4, st_out_b.buf, st_bytes);
-  write_buf(5, w_b.buf, w_bytes);
+    bool success = ni_trix_execute_shortconv(g_trix_context,
+                                            input_data, state_data,
+                                            output_data, next_state.data(),
+                                            weights_data, (uint32_t)D);
 
-  VkCommandBufferAllocateInfo cbai{};
-  cbai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-  cbai.commandPool = vk.cmd_pool;
-  cbai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-  cbai.commandBufferCount = 1;
-  VkCommandBuffer cmd = VK_NULL_HANDLE;
-  r = vkAllocateCommandBuffers(vk.dev, &cbai, &cmd);
-  ET_KERNEL_CHECK(ctx, r == VK_SUCCESS, InvalidArgument, out);
+    if (!success) {
+      ET_LOG(Error, "TriX ShortConv execution failed");
+      return out;
+    }
 
-  VkCommandBufferBeginInfo cbbi{};
-  cbbi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-  r = vkBeginCommandBuffer(cmd, &cbbi);
-  ET_KERNEL_CHECK(ctx, r == VK_SUCCESS, InvalidArgument, out);
-
-  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, vk.pipe);
-  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, vk.pl, 0, 1, &dset, 0, nullptr);
-
-  struct Push {
-    uint32_t D;
-    uint32_t L;
-  } pc;
-  pc.D = (uint32_t)D;
-  pc.L = 3u;
-  vkCmdPushConstants(cmd, vk.pl, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(Push), &pc);
-
-  const uint32_t wg = 256u;
-  const uint32_t gx = (pc.D + wg - 1u) / wg;
-  vkCmdDispatch(cmd, gx, 1, 1);
-
-  r = vkEndCommandBuffer(cmd);
-  ET_KERNEL_CHECK(ctx, r == VK_SUCCESS, InvalidArgument, out);
-
-  VkFenceCreateInfo fci{};
-  fci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-  VkFence fence = VK_NULL_HANDLE;
-  r = vkCreateFence(vk.dev, &fci, nullptr, &fence);
-  ET_KERNEL_CHECK(ctx, r == VK_SUCCESS, InvalidArgument, out);
-
-  VkSubmitInfo si{};
-  si.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-  si.commandBufferCount = 1;
-  si.pCommandBuffers = &cmd;
-  r = vkQueueSubmit(vk.queue, 1, &si, fence);
-  ET_KERNEL_CHECK(ctx, r == VK_SUCCESS, InvalidArgument, out);
-  r = vkWaitForFences(vk.dev, 1, &fence, VK_TRUE, UINT64_MAX);
-  ET_KERNEL_CHECK(ctx, r == VK_SUCCESS, InvalidArgument, out);
-
-  // Copy back to ExecuTorch tensors.
-  std::memcpy(out.mutable_data_ptr(), y_b.mapped, out_bytes);
-
-  // Cleanup per-call objects.
-  vkDestroyFence(vk.dev, fence, nullptr);
-  vkFreeCommandBuffers(vk.dev, vk.cmd_pool, 1, &cmd);
-  vkDestroyDescriptorPool(vk.dev, dpool, nullptr);
-
-  destroy_buf(vk, bx_b);
-  destroy_buf(vk, c_b);
-  destroy_buf(vk, st_in_b);
-  destroy_buf(vk, y_b);
-  destroy_buf(vk, st_out_b);
-  destroy_buf(vk, w_b);
+    ET_LOG(Info, "Executed ShortConv3 via Neural Interposer (D=%lld)", D);
+  }
 
   return out;
 }
 
 } // namespace ni
 
-// Register with ExecuTorch runtime as custom op: ni::shortconv3_step.out
+// Register with ExecuTorch runtime as custom ops
 EXECUTORCH_LIBRARY(ni, "shortconv3_step.out", ni::shortconv3_step_out);
+EXECUTORCH_LIBRARY(ni, "attention_step.out", ni::attention_step_out);
 

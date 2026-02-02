@@ -40,7 +40,7 @@ The Moltar documentation is broad, but it drifts when the repo’s validated har
 ## 🚨 Critical Gaps (Must Fix)
 
 ### 1. Hardware/runtime accuracy guardrails
-**Impact:** Users follow the wrong instructions for the actual device/backend (e.g., Snapdragon vs Dimensity, Mali vs PowerVR).
+**Impact:** Users follow the wrong instructions for the actual device/backend (e.g., MediaTek vs other platforms, Mali vs other GPUs).
 
 **Fix pattern:**
 - Every hardware-sensitive doc must state:

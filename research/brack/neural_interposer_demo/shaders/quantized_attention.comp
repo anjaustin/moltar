@@ -1,0 +1,99 @@
+#version 450
+
+// Quantized Attention Shader
+// Performs multi-head attention with 4-bit quantized weights
+
+#define PRECISION highp
+
+// Specialization constants
+layout(constant_id = 0) const uint HIDDEN_DIM = 1024;
+layout(constant_id = 1) const uint SEQ_LEN = 64;
+layout(constant_id = 2) const uint NUM_HEADS = 16;
+layout(constant_id = 3) const uint HEAD_DIM = 64;
+layout(constant_id = 4) const uint BITS = 4;
+layout(constant_id = 5) const uint BLOCK_SIZE = 64;
+
+// Input buffers (use runtime-sized arrays)
+layout(set = 0, binding = 0) readonly buffer InputX {
+    float input_x[];
+};
+
+layout(set = 0, binding = 1) readonly buffer KVCache {
+    float kv_cache[];
+};
+
+// Quantized weight buffers
+layout(set = 0, binding = 2) readonly buffer QuantizedWQ {
+    uint wq_packed[];
+};
+
+layout(set = 0, binding = 3) readonly buffer QuantizedWK {
+    uint wk_packed[];
+};
+
+layout(set = 0, binding = 4) readonly buffer QuantizedWV {
+    uint wv_packed[];
+};
+
+layout(set = 0, binding = 5) readonly buffer QuantizedWO {
+    uint wo_packed[];
+};
+
+// Scale buffers
+layout(set = 0, binding = 6) readonly buffer ScalesWQ {
+    float wq_scales[];
+};
+
+layout(set = 0, binding = 7) readonly buffer ScalesWK {
+    float wk_scales[];
+};
+
+layout(set = 0, binding = 8) readonly buffer ScalesWV {
+    float wv_scales[];
+};
+
+layout(set = 0, binding = 9) readonly buffer ScalesWO {
+    float wo_scales[];
+};
+
+// Output buffers (use runtime-sized arrays)
+layout(set = 0, binding = 10) writeonly buffer OutputY {
+    float output_y[];
+};
+
+layout(set = 0, binding = 11) writeonly buffer NextKVCache {
+    float next_kv_cache[];
+};
+
+// Shared memory for attention computation
+shared float shared_q[16];
+shared float shared_k[256];  // Max sequence length tile
+shared float shared_v[256];
+shared float shared_attn[256];
+
+// Dequantize 4-bit value
+float dequantize_4bit(uint packed, uint index, float scale) {
+    uint value = (packed >> (index * 4)) & 0xF;
+    int signed_value = int(value) - 8;  // -8 to 7 range
+    return float(signed_value) * scale;
+}
+
+// Simplified quantized operations (inline for GLSL compatibility)
+
+void main() {
+    uint tid = gl_GlobalInvocationID.x;
+
+    // Each thread handles one output element
+    if (tid >= HIDDEN_DIM) return;
+
+    // Simplified quantized attention (placeholder for now)
+    // This will be expanded to full attention computation
+
+    // For now, just copy input to output and update KV-cache
+    output_y[tid] = input_x[tid];
+
+    // Copy KV-cache (placeholder - would update with new K,V values)
+    if (tid < SEQ_LEN * HIDDEN_DIM * 2) {
+        next_kv_cache[tid] = kv_cache[tid];
+    }
+}

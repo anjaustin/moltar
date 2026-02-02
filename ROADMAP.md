@@ -13,11 +13,11 @@ Moltar aims to be the premier platform for rigorous, reproducible security resea
 - **Falsification Testing Framework**: Rigorous validation of performance claims with independent verification
 - **Documentation Suite**: Comprehensive guides covering deployment, integration, and troubleshooting
 - **Cross-Platform Validation**: Successful deployment and testing on Motorola **MediaTek MT6855V (Dimensity 930)** hardware (PowerVR GPU)
-- **Performance Achievements**: 2-3x improvement validated on current hardware, 4-8x projected for Snapdragon 480
+- **Performance Achievements**: 2-3x improvement validated on current hardware, optimized for MediaTek + Mali
 - **Real Hardware Testing**: LFM350 model deployed and tested on physical Android device
 
 ### 🎯 Active Development
-- **REQ-XNN-003 Implementation**: Hardware-specific tuning tracks (e.g., Snapdragon DSP paths, threading/cache tuning)
+- **REQ-XNN-003 Implementation**: Hardware-specific tuning tracks (e.g., MediaTek Mali GPU paths, threading/cache tuning)
 - **Neural Interposer track**: Channel-based architecture + Vulkan demos (see `docs/NEURAL_INTERPOSER.md`)
 - **Multi-Device Support**: Expansion beyond Motorola devices
 - **Research Automation**: Enhanced testing and validation frameworks

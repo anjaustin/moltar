@@ -1,12 +1,12 @@
 # SpaceGhost: ExecuTorch Research & Improvements
 
-Research project for enhancing ExecuTorch with Motorola/Snapdragon-specific optimizations and Liquid AI model support.
+Research project for enhancing ExecuTorch with Motorola/MediaTek-specific optimizations and Liquid AI model support.
 
 ## Overview
 
 SpaceGhost focuses on improving ExecuTorch's performance and capabilities for mobile AI research, specifically targeting:
 
-- **Snapdragon DSP/GPU acceleration** optimization
+- **MediaTek APU/GPU acceleration** optimization
 - **Liquid Foundation Model (LFM)** native support
 - **Memory efficiency** improvements for edge devices
 - **Real-time inference** enhancements
@@ -43,9 +43,9 @@ spaceghost/
 
 ### Hardware Testing Status
 - ✅ **MediaTek MT6855V:** Real device testing completed (Motorola moto g power 5G)
-- 🎯 **Snapdragon 480:** Target hardware (4-8x performance projection)
+- 🎯 **MediaTek + Mali:** Target hardware (performance optimizations)
 - ✅ **ARMv8.2-A Support:** Dot product acceleration validated
-- ✅ **Cross-Platform:** Optimizations work on MediaTek and Snapdragon
+- ✅ **Cross-Platform:** Optimizations work on MediaTek and other mobile platforms
 
 ### Phase 2: Mobile AI Optimization (Weeks 3-8)
 **Objective:** Deliver comprehensive mobile AI performance improvements across platforms
@@ -55,7 +55,7 @@ spaceghost/
 - ✅ **REQ-XNN-002:** Dynamic quantization optimization (30-50% overhead reduction)
 - ✅ **REQ-XNN-003:** Hardware-specific acceleration (dot product + threading)
 - ✅ **Real Device Testing:** LFM350 deployed and validated on Motorola hardware
-- 🎯 **Snapdragon Projection:** 4-8x total improvement expected on target hardware
+- 🎯 **MediaTek Projection:** Significant improvement expected on target hardware
 
 ### ✅ REQ-XNN-002: Dynamic Quantization Chain Duplication - COMPLETE
 
@@ -71,8 +71,8 @@ spaceghost/
 
 ## Research Goals
 
-### 1. Snapdragon DSP Optimization (Phase 3)
-**Objective:** Maximize Qualcomm Hexagon DSP utilization on Snapdragon 480
+### 1. MediaTek GPU Optimization (Phase 3)
+**Objective:** Maximize MediaTek Mali GPU utilization on MediaTek hardware
 
 **Current State:**
 - <50% DSP capacity utilization (6-9 TOPS vs 15 TOPS theoretical)
@@ -200,7 +200,7 @@ Each improvement hypothesis is tested against:
 #### DSP Kernel Optimization
 **Hypothesis:** Custom DSP kernels improve LFM inference by 25%
 **Status:** Design phase
-**Evidence Needed:** Snapdragon 480 DSP profiling data
+**Evidence Needed:** MediaTek Mali GPU profiling data
 
 #### Memory Pool Enhancement
 **Hypothesis:** Advanced memory pooling reduces peak usage by 30%
@@ -215,8 +215,8 @@ Each improvement hypothesis is tested against:
 ### Completed Research
 
 #### Initial Assessment
-**Finding:** ExecuTorch has 2x performance gap vs. theoretical Snapdragon 480 limits
-**Evidence:** Benchmarking against Snapdragon Neural Processing SDK
+**Finding:** ExecuTorch has performance gap vs. theoretical MediaTek Mali limits
+**Evidence:** Benchmarking against MediaTek Neural Processing capabilities
 **Action:** Prioritized DSP optimization research
 
 ## Integration with Moltar
@@ -242,7 +242,7 @@ println("Memory efficiency: ${metrics.memoryEfficiency}%")
 ```bash
 # Build optimized ExecuTorch
 cd research/spaceghost/executorch
-./build_optimized.sh --target snapdragon
+./build_optimized.sh --target mediatek
 
 # Integrate with Brack
 cd ../..
@@ -298,12 +298,12 @@ cd ../..
 ### Research Papers
 - [ExecuTorch: Enabling On-Device Inference](https://arxiv.org/abs/2404.00527)
 - [Liquid Foundation Models](https://arxiv.org/abs/2501.00689)
-- [Snapdragon Neural Processing](https://developer.qualcomm.com/software/snapdragon-neural-processing-engine)
+- [MediaTek Neural Processing](https://www.mediatek.com/products)
 
 ### Tools
 - **Perfetto**: System profiling and tracing
 - **Android Profiler**: Memory and CPU analysis
-- **Qualcomm Snapdragon Profiler**: DSP optimization
+- **MediaTek Tools**: GPU optimization and profiling
 - **PyTorch Profiler**: Model performance analysis
 
 ---

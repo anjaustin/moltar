@@ -131,7 +131,7 @@ The deployment automatically applies SpaceGhost optimizations:
 - **Impact**: Improved memory efficiency and speed
 
 #### REQ-XNN-003: Hardware-Specific Tuning (Pending)
-- Snapdragon 480 dot product instruction optimization
+- MediaTek Mali GPU optimization
 - Memory format optimization (NHWC)
 - Thread pool optimization for 2+6 core layout
 
@@ -183,7 +183,7 @@ adb shell /data/local/tmp/spaceghost_demo/show_achievements.sh
 
 # Expected output:
 # 🚀 SPACEGHOST LFN DEPLOYMENT DEMONSTRATION
-# Device: moto g power 5G - 2023 (Snapdragon 480)
+# Device: Motorola device with MediaTek + Mali
 # ✅ REQ-XNN-001: MaxPool2d XNNPack Delegation
 # ✅ REQ-XNN-002: Dynamic Quantization Fixes
 # 📊 Performance: 64.8ms latency, 3 delegate operations
@@ -220,7 +220,7 @@ adb shell dumpsys meminfo com.moltar.brack
 
 ### Performance Metrics
 
-#### Expected Results (LFM2-350M on Snapdragon 480)
+#### Expected Results (LFM2-350M on MediaTek + Mali)
 
 | Metric | Target | SpaceGhost Achieved | Status |
 |--------|--------|-------------------|--------|
@@ -262,7 +262,7 @@ partitioned = optimized_edge.to_backend(XnnpackPartitioner())
 
 ### Memory Format Optimization
 ```python
-# NHWC format for Snapdragon 480 optimization
+# Optimized format for MediaTek Mali GPU
 model = model.to(memory_format=torch.channels_last)
 # Benefits: Better cache locality, DSP acceleration
 ```
@@ -369,7 +369,7 @@ adb logcat -v time | grep -E "(SpaceGhost|latency|inference)" > performance_log.
 
 ## Future Optimizations (REQ-XNN-003)
 
-### Planned Snapdragon 480 Enhancements
+### Planned MediaTek + Mali Enhancements
 1. **Dot Product Instructions**: UDOT/SDOT kernel optimization (30-50% speedup)
 2. **Thread Affinity**: Pin to Cortex-A76 cores for optimal 2+6 layout
 3. **L3 Cache Optimization**: Memory access pattern improvements
@@ -405,7 +405,7 @@ For deployment issues:
 This deployment guide enables you to:
 
 1. **Deploy optimized LFN models** with SpaceGhost performance improvements
-2. **Achieve 69% latency reduction** (200ms → 64.8ms) on Snapdragon 480
+2. **Achieve significant latency reduction** through Neural Interposer optimization on MediaTek + Mali
 3. **Enable DSP acceleration** for mobile AI inference
 4. **Validate performance claims** through falsification testing
 5. **Troubleshoot deployment issues** with comprehensive diagnostics

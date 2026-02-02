@@ -35,7 +35,7 @@ endif()
 
 add_executable(
   executorch_runner
-  ${EXECUTORCH_ROOT}/examples/portable/executor_runner/executor_runner.cpp
+  ${CMAKE_CURRENT_LIST_DIR}/executorch_runner_main.cpp
 )
 
 target_compile_options(executorch_runner PUBLIC -Wno-deprecated-declarations -fPIC)
@@ -47,6 +47,9 @@ target_compile_definitions(executorch_runner PUBLIC C10_USING_CUSTOM_GENERATED_M
 add_library(
   ni_softchip_ops
   ${CMAKE_CURRENT_LIST_DIR}/../executorch_softchip_ops/ni_vulkan_shortconv3.cpp
+  ${CMAKE_CURRENT_LIST_DIR}/../executorch_softchip_ops/ni_attention_op.cpp
+  ${CMAKE_CURRENT_LIST_DIR}/../executorch_softchip_ops/ni_channel.cpp
+  ${CMAKE_CURRENT_LIST_DIR}/../executorch_softchip_ops/ni_trix_context.cpp
 )
 target_include_directories(ni_softchip_ops PRIVATE ${_common_include_directories})
 target_compile_options(ni_softchip_ops PUBLIC -Wno-deprecated-declarations -fPIC)

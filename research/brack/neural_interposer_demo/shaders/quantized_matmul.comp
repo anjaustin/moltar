@@ -1,0 +1,106 @@
+#version 450
+
+// Quantized Matrix Multiplication Shader
+// Performs C = A * B where A and B are 4-bit quantized
+
+#define PRECISION highp
+
+// Specialization constants
+layout(constant_id = 0) const uint BITS = 4;
+layout(constant_id = 1) const uint BLOCK_SIZE = 64;
+layout(constant_id = 2) const uint M = 1024;
+layout(constant_id = 3) const uint N = 1024;
+layout(constant_id = 4) const uint K = 1024;
+
+// Input buffers (quantized)
+layout(set = 0, binding = 0) readonly buffer QuantizedA {
+    uint A_packed[];  // 4-bit values packed 2 per byte
+};
+
+layout(set = 0, binding = 1) readonly buffer QuantizedB {
+    uint B_packed[];  // 4-bit values packed 2 per byte
+};
+
+// Scale buffers
+layout(set = 0, binding = 2) readonly buffer ScalesA {
+    float A_scales[];
+};
+
+layout(set = 0, binding = 3) readonly buffer ScalesB {
+    float B_scales[];
+};
+
+// Output buffer
+layout(set = 0, binding = 4) writeonly buffer OutputC {
+    float C[];
+};
+
+// Shared memory for tile
+shared float tileA[16][16];
+shared float tileB[16][16];
+
+// Dequantize 4-bit value
+float dequantize_4bit(uint packed, uint index, float scale) {
+    // Extract 4-bit value (index 0 = low 4 bits, 1 = high 4 bits)
+    uint value = (packed >> (index * 4)) & 0xF;
+
+    // Convert to signed (-8 to 7 range for symmetric quantization)
+    int signed_value = int(value) - 8;
+
+    return float(signed_value) * scale;
+}
+
+void main() {
+    uint global_x = gl_GlobalInvocationID.x;
+    uint global_y = gl_GlobalInvocationID.y;
+    uint local_x = gl_LocalInvocationID.x;
+    uint local_y = gl_LocalInvocationID.y;
+
+    // Check bounds
+    if (global_x >= M || global_y >= N) return;
+
+    float sum = 0.0;
+
+    // Process K dimension in tiles
+    for (uint tile_k = 0; tile_k < K; tile_k += 16) {
+        // Load tile into shared memory
+        if (tile_k + local_x < K && global_x < M) {
+            // Dequantize A tile element
+            uint a_packed_idx = ((global_x * K + tile_k + local_x) * BITS) / 8;
+            uint a_byte_offset = ((global_x * K + tile_k + local_x) * BITS) % 8;
+            uint a_packed = A_packed[a_packed_idx];
+            float a_scale = A_scales[(global_x * K + tile_k + local_x) / BLOCK_SIZE];
+            tileA[local_y][local_x] = dequantize_4bit(a_packed, a_byte_offset / 4, a_scale);
+        } else {
+            tileA[local_y][local_x] = 0.0;
+        }
+
+        if (tile_k + local_y < K && global_y < N) {
+            // Dequantize B tile element
+            uint b_packed_idx = ((tile_k + local_y) * N + global_y) * BITS / 8;
+            uint b_byte_offset = (((tile_k + local_y) * N + global_y) * BITS) % 8;
+            uint b_packed = B_packed[b_packed_idx];
+            float b_scale = B_scales[((tile_k + local_y) * N + global_y) / BLOCK_SIZE];
+            tileB[local_y][local_x] = dequantize_4bit(b_packed, b_byte_offset / 4, b_scale);
+        } else {
+            tileB[local_y][local_x] = 0.0;
+        }
+
+        // Synchronize
+        memoryBarrierShared();
+        barrier();
+
+        // Compute partial sum
+        for (uint k = 0; k < 16; k++) {
+            sum += tileA[local_y][k] * tileB[k][local_x];
+        }
+
+        // Synchronize before next tile
+        barrier();
+    }
+
+    // Write result
+    if (global_x < M && global_y < N) {
+        C[global_x * N + global_y] = sum;
+    }
+}

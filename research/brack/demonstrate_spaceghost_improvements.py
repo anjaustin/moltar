@@ -3,7 +3,7 @@
 Demonstrate SpaceGhost ExecuTorch Improvements with LFN-350
 
 Shows the key achievement: MaxPool2d operations now properly partition to XNNPack
-This enables 2-3x performance improvements for LFN models on Snapdragon 480
+This enables significant performance improvements for LFN models on MediaTek + Mali
 """
 
 import sys
