@@ -18,6 +18,7 @@ echo "API Level: $ANDROID_API_LEVEL"
 # Set up directories
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+EXECUTORCH_DIR="$PROJECT_ROOT/brack/executorch_android_runner"
 BUILD_DIR="$PROJECT_ROOT/brack/build"
 INSTALL_DIR="$BUILD_DIR/install"
 
@@ -28,12 +29,13 @@ cd "$BUILD_DIR"
 # Configure with CMake
 echo "📋 Configuring with CMake..."
 
-cmake "$PROJECT_ROOT" \
+cmake "$EXECUTORCH_DIR" \
     -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
     -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK/build/cmake/android.toolchain.cmake" \
     -DANDROID_ABI="$ANDROID_ABI" \
     -DANDROID_PLATFORM="android-$ANDROID_API_LEVEL" \
     -DANDROID_STL=c++_shared \
+    -DEXECUTORCH_ROOT="$EXECUTORCH_ROOT" \
     -DBUILD_EXECUTORCH=ON \
     -DBUILD_INTEGRATED_LFM_PIPELINE=ON \
     -DENABLE_NEURAL_INTERPOSER=ON \

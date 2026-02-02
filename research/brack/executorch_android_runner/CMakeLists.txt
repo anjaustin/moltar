@@ -6,43 +6,27 @@ if(NOT CMAKE_CXX_STANDARD)
   set(CMAKE_CXX_STANDARD 17)
 endif()
 
-# Path to the ExecuTorch source tree (used for the runner source file).
-if(NOT EXECUTORCH_ROOT)
-  message(FATAL_ERROR "EXECUTORCH_ROOT must be set to the ExecuTorch source directory")
-endif()
+# Direct paths - no find_package needed
+set(EXECUTORCH_BUILD_DIR "${CMAKE_CURRENT_LIST_DIR}/../../spaceghost/executorch/cmake-out-android-ni")
 
-# Let files say "include <executorch/path/to/header.h>".
+# Include directories
 set(_common_include_directories
-  ${EXECUTORCH_ROOT}/..
-  # Needed for includes like <c10/util/irange.h> via ExecuTorch portable c10.
-  ${EXECUTORCH_ROOT}/runtime/core/portable_type/c10
+  ${EXECUTORCH_BUILD_DIR}/include
+  ${EXECUTORCH_BUILD_DIR}/schema/include
+  ${EXECUTORCH_BUILD_DIR}/extension/include
 )
 
-# Find installed ExecuTorch package (from the Vulkan-enabled Android install).
-find_package(executorch CONFIG REQUIRED)
-target_include_directories(executorch INTERFACE ${_common_include_directories})
-
-# gflags is built as part of the ExecuTorch build tree; point gflags_DIR at it.
-find_package(gflags REQUIRED)
-
-if(TARGET gflags::gflags)
-  set(_gflags_target gflags::gflags)
-elseif(TARGET gflags)
-  set(_gflags_target gflags)
-else()
-  message(FATAL_ERROR "gflags target not found after find_package(gflags)")
-endif()
-
 add_executable(
-  executorch_runner
+  executorch_runner_integrated
   ${CMAKE_CURRENT_LIST_DIR}/executorch_runner_main.cpp
 )
 
-target_compile_options(executorch_runner PUBLIC -Wno-deprecated-declarations -fPIC)
-target_compile_definitions(executorch_runner PUBLIC C10_USING_CUSTOM_GENERATED_MACROS)
+target_compile_options(executorch_runner_integrated PUBLIC -Wno-deprecated-declarations -fPIC)
+target_compile_definitions(executorch_runner_integrated PUBLIC C10_USING_CUSTOM_GENERATED_MACROS)
+target_include_directories(executorch_runner_integrated PRIVATE ${_common_include_directories})
 
 #
-# Soft-chip custom ops (local to this repo, not the ExecuTorch submodule).
+# Soft-chip custom ops (Neural Interposer)
 #
 add_library(
   ni_softchip_ops
@@ -55,7 +39,7 @@ target_include_directories(ni_softchip_ops PRIVATE ${_common_include_directories
 target_compile_options(ni_softchip_ops PUBLIC -Wno-deprecated-declarations -fPIC)
 target_compile_definitions(ni_softchip_ops PUBLIC C10_USING_CUSTOM_GENERATED_MACROS)
 
-# Android system libs for Vulkan + logging.
+# Android system libs
 find_library(_android_log log)
 find_library(_android_vulkan vulkan)
 if(_android_log)
@@ -65,22 +49,17 @@ if(_android_vulkan)
   target_link_libraries(ni_softchip_ops PUBLIC ${_android_vulkan})
 endif()
 
+# Direct library linking
 target_link_libraries(
-  executorch_runner
-  executorch
-  executorch_core
-  extension_evalue_util
-  extension_runner_util
-  extension_data_loader
-  extension_flat_tensor
-  portable_ops_lib
-  portable_kernels
+  executorch_runner_integrated
+  ${EXECUTORCH_BUILD_DIR}/libexecutorch.a
+  ${EXECUTORCH_BUILD_DIR}/libexecutorch_core.a
+  ${EXECUTORCH_BUILD_DIR}/kernels/portable/libportable_ops_lib.a
+  ${EXECUTORCH_BUILD_DIR}/kernels/portable/libportable_kernels.a
+  ${EXECUTORCH_BUILD_DIR}/extension/runner_util/libextension_runner_util.a
+  ${EXECUTORCH_BUILD_DIR}/extension/evalue_util/libextension_evalue_util.a
+  ${EXECUTORCH_BUILD_DIR}/extension/data_loader/libextension_data_loader.a
+  ${EXECUTORCH_BUILD_DIR}/extension/flat_tensor/libextension_flat_tensor.a
+  ${EXECUTORCH_BUILD_DIR}/backends/vulkan/libvulkan_backend.a
   ni_softchip_ops
-  ${_gflags_target}
 )
-
-# If Vulkan backend target is available, link it in.
-if(TARGET vulkan_backend)
-  target_link_libraries(executorch_runner vulkan_backend)
-endif()
-
