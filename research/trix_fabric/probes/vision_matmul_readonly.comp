@@ -1,0 +1,99 @@
+#version 450
+#extension GL_EXT_shader_16bit_storage : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : enable
+
+/*
+ * vision_matmul_readonly.comp — Load-only: same memory traffic, zero ALU
+ *
+ * Loads weights into shared memory and reads activations, but does NOT
+ * multiply.  Accumulates only the activation values (1 add, no multiply).
+ * This isolates: is the time in memory loads or in FMA?
+ *
+ * If tiled_real ≈ readonly, the shader is memory-bound (loads dominate).
+ * If tiled_real >> readonly, there IS real compute happening.
+ *
+ * Build:
+ *   glslc --target-env=vulkan1.1 -o vision_matmul_readonly.spv vision_matmul_readonly.comp
+ */
+
+layout(local_size_x = 128) in;
+
+layout(set = 0, binding = 0) readonly buffer Weights_f16 { float16_t w_f16[]; };
+layout(set = 0, binding = 1) readonly buffer Activations { float16_t x[]; };
+layout(set = 0, binding = 2) writeonly buffer Output     { float     o[]; };
+layout(set = 0, binding = 3) readonly buffer Unused0 { uint _pad0[]; };
+layout(set = 0, binding = 4) readonly buffer Unused1 { float16_t _pad1[]; };
+
+layout(push_constant) uniform Params {
+    uint mode;
+    uint N;
+    uint K;
+    uint B;
+};
+
+const uint TILE_K = 1152u;
+shared float16_t s_w[TILE_K];
+
+void main() {
+    uint tid = gl_LocalInvocationID.x;
+    uint n   = gl_WorkGroupID.x;
+
+    if (n >= N) return;
+
+    uint n_tiles = (K + TILE_K - 1u) / TILE_K;
+    const uint MAX_B_PER_THREAD = 4u;
+    float acc[4];
+    for (uint i = 0u; i < MAX_B_PER_THREAD; i++) acc[i] = 0.0;
+
+    uint b_per_thread = (B + 127u) / 128u;
+    if (b_per_thread > MAX_B_PER_THREAD) b_per_thread = MAX_B_PER_THREAD;
+
+    for (uint tile = 0u; tile < n_tiles; tile++) {
+        uint tile_base = tile * TILE_K;
+        uint tile_end  = min(tile_base + TILE_K, K);
+        uint tile_len  = tile_end - tile_base;
+
+        // Load weights into shared memory (same as tiled)
+        uint load_per = (tile_len + 127u) / 128u;
+        for (uint i = 0u; i < load_per; i++) {
+            uint idx = tid * load_per + i;
+            if (idx < tile_len) {
+                s_w[idx] = w_f16[n * K + tile_base + idx];
+            }
+        }
+
+        barrier();
+        memoryBarrierShared();
+
+        // Read activations but DON'T multiply — just sum activations
+        for (uint bi = 0u; bi < b_per_thread; bi++) {
+            uint b = tid + bi * 128u;
+            if (b >= B) break;
+
+            float sum = 0.0;
+            uint x_base = b * K + tile_base;
+
+            uint k = 0u;
+            for (; k + 3u < tile_len; k += 4u) {
+                sum += float(x[x_base + k]);
+                sum += float(x[x_base + k + 1u]);
+                sum += float(x[x_base + k + 2u]);
+                sum += float(x[x_base + k + 3u]);
+            }
+            for (; k < tile_len; k++) {
+                sum += float(x[x_base + k]);
+            }
+
+            acc[bi] += sum;
+        }
+
+        barrier();
+    }
+
+    for (uint bi = 0u; bi < b_per_thread; bi++) {
+        uint b = tid + bi * 128u;
+        if (b < B) {
+            o[b * N + n] = acc[bi];
+        }
+    }
+}

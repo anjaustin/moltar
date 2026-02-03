@@ -1,0 +1,44 @@
+#version 450
+#extension GL_EXT_shader_16bit_storage : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : enable
+
+/*
+ * vision_matmul_nop.comp — NOP version: same dispatch shape, zero compute
+ *
+ * Answers: "Is the GPU actually multiplying, or is all the time in dispatch?"
+ * If tiled_real ≈ tiled_nop, the GPU is dispatch-bound, not compute-bound.
+ *
+ * Build:
+ *   glslc --target-env=vulkan1.1 -o vision_matmul_nop.spv vision_matmul_nop.comp
+ */
+
+layout(local_size_x = 128) in;
+
+layout(set = 0, binding = 0) readonly buffer Weights_f16 { float16_t w_f16[]; };
+layout(set = 0, binding = 1) readonly buffer Activations { float16_t x[]; };
+layout(set = 0, binding = 2) writeonly buffer Output     { float     o[]; };
+layout(set = 0, binding = 3) readonly buffer Unused0 { uint _pad0[]; };
+layout(set = 0, binding = 4) readonly buffer Unused1 { float16_t _pad1[]; };
+
+layout(push_constant) uniform Params {
+    uint mode;
+    uint N;
+    uint K;
+    uint B;
+};
+
+void main() {
+    uint tid = gl_LocalInvocationID.x;
+    uint n   = gl_WorkGroupID.x;
+
+    if (n >= N) return;
+
+    // Write zeros — same output pattern, zero compute
+    uint b_per_thread = (B + 127u) / 128u;
+    for (uint bi = 0u; bi < b_per_thread; bi++) {
+        uint b = tid + bi * 128u;
+        if (b < B) {
+            o[b * N + n] = 0.0;
+        }
+    }
+}

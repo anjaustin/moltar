@@ -1,0 +1,57 @@
+#version 450
+#extension GL_EXT_shader_16bit_storage : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : enable
+
+/*
+ * ace_lite_read.comp — Simple buffer reader for cache coherency probe
+ *
+ * Each workgroup reads a chunk of the input buffer, accumulates a checksum,
+ * writes one float per workgroup. Pure read bandwidth measurement.
+ *
+ * The host controls how much data to read via push constant `count`.
+ * Dispatch: (num_workgroups, 1, 1) where each WG reads CHUNK_SIZE elements.
+ *
+ * Build:
+ *   glslc --target-env=vulkan1.1 -o ace_lite_read.spv ace_lite_read.comp
+ */
+
+layout(local_size_x = 128) in;
+
+layout(set = 0, binding = 0) readonly  buffer Input  { float16_t data_in[]; };
+layout(set = 0, binding = 1) writeonly buffer Output { float     data_out[]; };
+
+layout(push_constant) uniform Params {
+    uint count;     /* total number of float16 elements to read */
+    uint stride;    /* elements per workgroup (CHUNK_SIZE) */
+    uint pad0;
+    uint pad1;
+};
+
+void main() {
+    uint wg  = gl_WorkGroupID.x;
+    uint tid = gl_LocalInvocationID.x;
+
+    uint base = wg * stride;
+    uint end  = min(base + stride, count);
+
+    /* Each thread accumulates over its stripe of the chunk.
+     * 128 threads, each reads every 128th element within the chunk.
+     * This gives us coalesced reads (adjacent threads read adjacent addresses). */
+    float acc = 0.0;
+    for (uint i = base + tid; i < end; i += 128u) {
+        acc += float(data_in[i]);
+    }
+
+    /* Reduce across workgroup is unnecessary — just write per-thread to prevent
+     * the compiler from optimizing out the reads.  We use atomicAdd-style trick:
+     * just write thread 0's accumulator as the WG result. All threads must
+     * participate in the reads though. */
+
+    /* Barrier so all reads complete before any thread writes */
+    barrier();
+
+    /* Only thread 0 writes the checksum — but ALL threads did reads */
+    if (tid == 0u) {
+        data_out[wg] = acc;
+    }
+}

@@ -1,0 +1,92 @@
+#version 450
+#extension GL_EXT_shader_16bit_storage : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : enable
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+
+/*
+ * vision_matmul.comp — Batched F16 matmul probe for GPU vision encoding
+ *
+ * Simulates SigLIP2 vision encoder core operation:
+ *   Out[b,n] = sum_k( W[n,k] * X[b,k] )  for b in [0,B), n in [0,N), k in [0,K)
+ *
+ * Modes (selected via push constant):
+ *   0: Raw F16 matmul — weights and activations in float16
+ *   1: Palettized matmul — 8-bit weight indices + 256-entry F16 palette in SSBO
+ *
+ * Workgroup: 128 threads (= 1 PowerVR subgroup)
+ * Each workgroup computes ONE output element out[b][n].
+ *   WorkGroupID.x = n, WorkGroupID.y = b
+ *   128 threads split the K-dim dot product, then subgroup reduce.
+ *
+ * For K=1152, 128 threads → 9 values per thread.
+ *
+ * Build:
+ *   glslc --target-env=vulkan1.1 -o vision_matmul.spv vision_matmul.comp
+ */
+
+layout(local_size_x = 128) in;
+
+// Mode 0: F16 weights [N*K] and activations [B*K]
+layout(set = 0, binding = 0) readonly buffer Weights_f16 { float16_t w_f16[]; };
+layout(set = 0, binding = 1) readonly buffer Activations { float16_t x[]; };       // [B * K]
+layout(set = 0, binding = 2) writeonly buffer Output     { float     o[]; };       // [B * N]
+
+// Mode 1: Palettized weights — indices [N*K] as uint8 packed into uint32
+layout(set = 0, binding = 3) readonly buffer WeightIdx   { uint w_idx[]; };        // [N*K/4] packed uint8x4
+layout(set = 0, binding = 4) readonly buffer Palette     { float16_t palette[]; }; // [256]
+
+layout(push_constant) uniform Params {
+    uint mode;  // 0=f16, 1=palettized
+    uint N;     // output dim (1152)
+    uint K;     // inner dim  (1152)
+    uint B;     // batch size (1, 16, 64)
+};
+
+void main() {
+    uint tid = gl_LocalInvocationID.x;
+    uint n   = gl_WorkGroupID.x;
+    uint b   = gl_WorkGroupID.y;
+
+    if (n >= N || b >= B) return;
+
+    // Each thread handles ceil(K/128) elements
+    // For K=1152, 128 threads: thread 0..127 handle 9 elements each (128*9=1152)
+    uint elems_per_thread = (K + 127u) / 128u;
+    uint base_k = tid * elems_per_thread;
+
+    float acc = 0.0;
+
+    if (mode == 0u) {
+        // ── Mode 0: Raw F16 matmul ──
+        uint w_row = n * K;
+        uint x_row = b * K;
+        for (uint i = 0u; i < elems_per_thread && (base_k + i) < K; i++) {
+            uint k = base_k + i;
+            acc += float(w_f16[w_row + k]) * float(x[x_row + k]);
+        }
+    }
+    else if (mode == 1u) {
+        // ── Mode 1: Palettized matmul (8-bit indices + F16 palette) ──
+        // Weights stored as packed uint8 in uint32 words: w_idx[n*K/4 + k/4]
+        // Each uint32 contains 4 indices: byte 0 = k%4==0, etc.
+        uint w_base = n * K;
+        uint x_row  = b * K;
+        for (uint i = 0u; i < elems_per_thread && (base_k + i) < K; i++) {
+            uint k = base_k + i;
+            // Extract 8-bit index from packed uint32
+            uint word = w_idx[(w_base + k) / 4u];
+            uint byte_idx = (k % 4u) * 8u;
+            uint idx = (word >> byte_idx) & 0xFFu;
+            // Lookup weight from palette
+            float w_val = float(palette[idx]);
+            acc += w_val * float(x[x_row + k]);
+        }
+    }
+
+    // Subgroup reduction (subgroup size = 128 = workgroup size on PowerVR)
+    acc = subgroupAdd(acc);
+
+    if (tid == 0u) {
+        o[b * N + n] = acc;
+    }
+}

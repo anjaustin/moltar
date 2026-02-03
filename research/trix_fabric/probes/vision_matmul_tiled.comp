@@ -1,0 +1,153 @@
+#version 450
+#extension GL_EXT_shader_16bit_storage : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : enable
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+
+/*
+ * vision_matmul_tiled.comp — Tiled batched F16 matmul with shared memory
+ *
+ * KEY INSIGHT: v1 dispatched (N, B, 1) = 73,728 workgroups.
+ * Each workgroup loaded its own weight slice from DRAM independently.
+ * For B=64, the same weight row W[n,:] was loaded 64 times.
+ *
+ * v2 TILING: Each workgroup owns one output row n and computes ALL batch
+ * elements for that row.  Weight tiles are loaded into shared memory ONCE
+ * and reused across all batch elements.
+ *
+ * Workgroup: 128 threads (= 1 PowerVR subgroup)
+ * Dispatch:  (N, 1, 1) = 1152 workgroups  (64x fewer than v1!)
+ *
+ * Shared memory budget: 16,384 bytes
+ *   - Weight tile: TILE_K float16 = TILE_K * 2 bytes
+ *   - TILE_K = 4096 → 8192 bytes (fits comfortably)
+ *   - Remaining 8KB left for future use
+ *
+ * Algorithm per workgroup (row n):
+ *   for each K-tile of size TILE_K:
+ *     1. Cooperative load: 128 threads load TILE_K/128 = 32 weights each into shmem
+ *     2. barrier()
+ *     3. Each thread handles ceil(B/128) batch elements
+ *        For each owned batch element b:
+ *          for k in tile: acc[b] += shmem_w[k] * X[b, tile_base + k]
+ *     4. barrier()
+ *   Write out[b][n] for all owned batch elements
+ *
+ * For K=1152, TILE_K=1152 (entire row fits in one tile! 1152*2 = 2304 bytes)
+ * This means: ONE load of the weight row, then iterate all 64 batch elements.
+ *
+ * Build:
+ *   glslc --target-env=vulkan1.1 -o vision_matmul_tiled.spv vision_matmul_tiled.comp
+ */
+
+layout(local_size_x = 128) in;
+
+layout(set = 0, binding = 0) readonly buffer Weights_f16 { float16_t w_f16[]; };  // [N * K]
+layout(set = 0, binding = 1) readonly buffer Activations { float16_t x[]; };       // [B * K]
+layout(set = 0, binding = 2) writeonly buffer Output     { float     o[]; };       // [B * N]
+
+// Bindings 3,4 kept for compatibility with v1 descriptor layout (unused here)
+layout(set = 0, binding = 3) readonly buffer Unused0 { uint _pad0[]; };
+layout(set = 0, binding = 4) readonly buffer Unused1 { float16_t _pad1[]; };
+
+layout(push_constant) uniform Params {
+    uint mode;  // 2 = tiled F16 (this shader)
+    uint N;     // output dim (1152)
+    uint K;     // inner dim  (1152)
+    uint B;     // batch size (1, 16, 64)
+};
+
+// Shared memory: weight tile
+// K=1152 → 1152 * 2 bytes = 2304 bytes.  Well within 16KB.
+// Max TILE_K = 4096 to stay under 8KB for weight tile alone.
+const uint TILE_K = 1152u;  // For K=1152, load entire row in one shot
+shared float16_t s_w[TILE_K];
+
+void main() {
+    uint tid = gl_LocalInvocationID.x;  // 0..127
+    uint n   = gl_WorkGroupID.x;        // output row
+
+    if (n >= N) return;
+
+    // Number of K-tiles (for K=1152, TILE_K=1152 → 1 tile)
+    uint n_tiles = (K + TILE_K - 1u) / TILE_K;
+
+    // Each thread accumulates for ceil(B/128) batch elements
+    // For B=64, 128 threads → each thread handles at most 1 batch element
+    // For B=1, only thread 0 does work
+    // We use a loop to handle any B.
+    // Max B we support: 128 (one per thread). For B>128 we'd need another approach.
+    // Since our max B=64, each thread handles 0 or 1 batch elements.
+
+    // Actually, let's be more flexible: each thread can handle multiple batch elements
+    // by accumulating into local registers.
+    // For B=64, 128 threads: threads 0..63 each handle one b, threads 64..127 idle.
+    // For B=1, only thread 0 works (bad utilization but B=1 is not the target).
+    // Better approach: distribute batch elements round-robin.
+
+    // Accumulator array: each thread handles ceil(B/128) batch elements
+    // For B=64: each thread handles 0 or 1 elements (threads 0..63)
+    // For B=128: each thread handles exactly 1 element
+    // We cap at 4 batch elements per thread (supports up to B=512)
+    const uint MAX_B_PER_THREAD = 4u;
+    float acc[4]; // MAX_B_PER_THREAD
+    for (uint i = 0u; i < MAX_B_PER_THREAD; i++) acc[i] = 0.0;
+
+    uint b_per_thread = (B + 127u) / 128u;
+    if (b_per_thread > MAX_B_PER_THREAD) b_per_thread = MAX_B_PER_THREAD;
+
+    for (uint tile = 0u; tile < n_tiles; tile++) {
+        uint tile_base = tile * TILE_K;
+        uint tile_end  = min(tile_base + TILE_K, K);
+        uint tile_len  = tile_end - tile_base;
+
+        // ── Step 1: Cooperative weight tile load ──
+        // 128 threads load tile_len elements.
+        // Each thread loads ceil(tile_len/128) elements.
+        uint load_per = (tile_len + 127u) / 128u;
+        for (uint i = 0u; i < load_per; i++) {
+            uint idx = tid * load_per + i;
+            if (idx < tile_len) {
+                s_w[idx] = w_f16[n * K + tile_base + idx];
+            }
+        }
+
+        // ── Step 2: Barrier — weight tile is ready ──
+        barrier();
+        memoryBarrierShared();
+
+        // ── Step 3: Compute — each thread processes its batch elements ──
+        for (uint bi = 0u; bi < b_per_thread; bi++) {
+            uint b = tid + bi * 128u;  // round-robin batch assignment
+            if (b >= B) break;
+
+            float sum = 0.0;
+            uint x_base = b * K + tile_base;
+
+            // Inner loop: dot product of s_w[0..tile_len) with X[b, tile_base..tile_end)
+            // Unrolled by 4 for ILP
+            uint k = 0u;
+            for (; k + 3u < tile_len; k += 4u) {
+                sum += float(s_w[k])     * float(x[x_base + k]);
+                sum += float(s_w[k+1u])  * float(x[x_base + k + 1u]);
+                sum += float(s_w[k+2u])  * float(x[x_base + k + 2u]);
+                sum += float(s_w[k+3u])  * float(x[x_base + k + 3u]);
+            }
+            for (; k < tile_len; k++) {
+                sum += float(s_w[k]) * float(x[x_base + k]);
+            }
+
+            acc[bi] += sum;
+        }
+
+        // ── Step 4: Barrier before next tile load ──
+        barrier();
+    }
+
+    // ── Write results ──
+    for (uint bi = 0u; bi < b_per_thread; bi++) {
+        uint b = tid + bi * 128u;
+        if (b < B) {
+            o[b * N + n] = acc[bi];
+        }
+    }
+}
