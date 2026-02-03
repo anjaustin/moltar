@@ -1,0 +1,152 @@
+#version 450
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+
+// Persistent coprocessor shader — runs forever, polls for work.
+//
+// Communication protocol via storage buffer (mapped, coherent):
+//   cmd[0] = command flag (CPU writes, GPU reads)
+//     0 = idle (GPU spins)
+//     1 = do work (GPU processes, writes result, sets cmd[0]=2)
+//     2 = done (CPU reads result, resets to 0 or issues new cmd)
+//     0xDEAD = shutdown (GPU exits)
+//
+//   cmd[1] = operation type
+//     0 = NOP (just measure round-trip)
+//     1 = vector reduce-sum (data in shared mem)
+//     2 = SiLU activation (in-place on data buffer)
+//     3 = RMSNorm (on data buffer, weights in shared mem)
+//
+//   cmd[2] = n_elements
+//   cmd[3] = iteration counter (GPU increments each completed job)
+//
+// Data buffer: binding 1, up to 4096 floats (16KB)
+// All real work happens in shared memory — loaded from data buf once,
+// processed, written back. No DRAM streaming during computation.
+
+layout(local_size_x = 128) in;
+
+layout(set = 0, binding = 0) coherent buffer Control { uint cmd[]; };
+layout(set = 0, binding = 1) coherent buffer Data    { float data_buf[]; };
+
+shared float smem[4096];  // 16KB shared memory
+
+void main() {
+    uint tid = gl_LocalInvocationID.x;
+
+    // Persistent loop — shader never exits until shutdown
+    for (;;) {
+        // Spin-wait for command (only thread 0 checks)
+        if (tid == 0u) {
+            // Spin on the command flag
+            while (atomicCompSwap(cmd[0], 1u, 1u) != 1u) {
+                // Check for shutdown
+                if (cmd[0] == 0xDEADu) {
+                    return;
+                }
+                // Spin — GPU is idle, burning cycles but not bandwidth
+                // memoryBarrierBuffer() ensures we see CPU writes
+                memoryBarrierBuffer();
+            }
+        }
+
+        // All threads synchronize after thread 0 sees the command
+        barrier();
+
+        uint op = cmd[1];
+        uint n = cmd[2];
+
+        // ── OP 0: NOP (round-trip latency measurement) ──
+        if (op == 0u) {
+            // Do nothing, just signal completion
+        }
+
+        // ── OP 1: Reduce-sum ──
+        else if (op == 1u) {
+            // Load data into shared memory
+            uint stride = (n + 127u) / 128u;
+            float acc = 0.0;
+            for (uint i = 0u; i < stride; i++) {
+                uint idx = tid * stride + i;
+                if (idx < n) {
+                    smem[idx] = data_buf[idx];
+                    acc += data_buf[idx];
+                }
+            }
+            // Subgroup reduce
+            acc = subgroupAdd(acc);
+            if (tid == 0u) {
+                data_buf[0] = acc;
+            }
+        }
+
+        // ── OP 2: SiLU activation (in-place) ──
+        else if (op == 2u) {
+            uint stride = (n + 127u) / 128u;
+            for (uint i = 0u; i < stride; i++) {
+                uint idx = tid * stride + i;
+                if (idx < n) {
+                    // Load into shared mem
+                    smem[idx] = data_buf[idx];
+                }
+            }
+            barrier();
+            for (uint i = 0u; i < stride; i++) {
+                uint idx = tid * stride + i;
+                if (idx < n) {
+                    float x = smem[idx];
+                    float silu = x / (1.0 + exp(-x));
+                    data_buf[idx] = silu;
+                }
+            }
+        }
+
+        // ── OP 3: RMSNorm ──
+        // data_buf[0..n-1] = input, data_buf[n..2n-1] = weights
+        // result written to data_buf[0..n-1]
+        else if (op == 3u) {
+            uint stride = (n + 127u) / 128u;
+            // Load input into shared memory
+            float ss = 0.0;
+            for (uint i = 0u; i < stride; i++) {
+                uint idx = tid * stride + i;
+                if (idx < n) {
+                    smem[idx] = data_buf[idx];
+                    ss += smem[idx] * smem[idx];
+                }
+            }
+            // Reduce sum-of-squares
+            ss = subgroupAdd(ss);
+            barrier();
+            float rms = sqrt(ss / float(n) + 1e-6);
+            float inv_rms = 1.0 / rms;
+            // Normalize and write back
+            for (uint i = 0u; i < stride; i++) {
+                uint idx = tid * stride + i;
+                if (idx < n) {
+                    data_buf[idx] = smem[idx] * inv_rms * data_buf[n + idx];
+                }
+            }
+        }
+
+        // Signal completion
+        barrier();
+        if (tid == 0u) {
+            atomicAdd(cmd[3], 1u);      // increment job counter
+            atomicExchange(cmd[0], 2u); // signal done
+        }
+
+        // Wait for CPU to acknowledge (reset to 0) or issue new command (set to 1)
+        if (tid == 0u) {
+            while (true) {
+                memoryBarrierBuffer();
+                uint v = atomicCompSwap(cmd[0], 2u, 2u);
+                if (v != 2u) break;  // CPU changed it
+            }
+            // Check for shutdown after acknowledge
+            if (cmd[0] == 0xDEADu) {
+                return;
+            }
+        }
+        barrier();
+    }
+}

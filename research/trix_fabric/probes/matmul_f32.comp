@@ -1,0 +1,50 @@
+#version 450
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+
+// FP32 batched matmul: Out[B,N] = X[B,K] × W[N,K]^T
+//
+// Each workgroup computes ONE output element out[b][n].
+//   WorkGroupID.x = n (0..N-1), WorkGroupID.y = b (0..B-1)
+//   128 threads split the K-dimensional dot product.
+//   Thread tid accumulates values [tid*8 .. tid*8+7], then subgroup reduce.
+//
+// K=1024, 128 threads → 8 values per thread.
+
+layout(local_size_x = 128) in;
+
+layout(set = 0, binding = 0) readonly buffer Weights     { float w[]; };  // [N × K]
+layout(set = 0, binding = 1) readonly buffer Activations { float x[]; };  // [B × K]
+layout(set = 0, binding = 2) writeonly buffer Output     { float o[]; };  // [B × N]
+
+layout(push_constant) uniform Params {
+    uint N;   // 4608
+    uint K;   // 1024
+    uint B;   // batch size
+};
+
+void main() {
+    uint tid = gl_LocalInvocationID.x;
+    uint n   = gl_WorkGroupID.x;
+    uint b   = gl_WorkGroupID.y;
+
+    if (n >= N || b >= B) return;
+
+    // Each thread accumulates 8 elements of the dot product
+    uint stride = K / 128u;  // = 8
+    uint base_k = tid * stride;
+
+    float acc = 0.0;
+    uint w_off = n * K + base_k;
+    uint x_off = b * K + base_k;
+
+    for (uint i = 0u; i < stride; i++) {
+        acc += w[w_off + i] * x[x_off + i];
+    }
+
+    // Subgroup reduction (subgroup size = 128 = workgroup size)
+    acc = subgroupAdd(acc);
+
+    if (tid == 0u) {
+        o[b * N + n] = acc;
+    }
+}

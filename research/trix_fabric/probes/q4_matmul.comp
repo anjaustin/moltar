@@ -1,0 +1,113 @@
+#version 450
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : enable
+
+// Q4_0 batched matmul: Out[B,N] = X[B,K] × W_q4[N,K]^T
+//
+// Each workgroup computes ONE output element out[b][n].
+//   WorkGroupID.x = n (0..N-1), WorkGroupID.y = b (0..B-1)
+//   128 threads split the K-dimensional dot product across Q4_0 blocks.
+//
+// Q4_0 block layout (18 bytes):
+//   [0..1]   f16 scale (little-endian)
+//   [2..17]  16 bytes = 32 nibbles (low nibble first per byte)
+//
+// K=1024 → 32 blocks per row, 576 bytes per row.
+// 128 threads / 32 blocks = 4 threads per block.
+// Each thread handles 8 values (one quarter of a block's 32 values).
+
+layout(local_size_x = 128) in;
+
+// Weights as uint32 array (we'll extract bytes manually)
+layout(set = 0, binding = 0) readonly buffer Weights     { uint w_raw[]; };
+// Activations: float [B × K]
+layout(set = 0, binding = 1) readonly buffer Activations { float x[]; };
+// Output: float [B × N]
+layout(set = 0, binding = 2) writeonly buffer Output     { float o[]; };
+
+layout(push_constant) uniform Params {
+    uint N;   // 4608
+    uint K;   // 1024
+    uint B;   // batch size
+};
+
+// Read a single byte from the uint buffer at byte position 'pos'
+uint read_byte(uint pos) {
+    return (w_raw[pos >> 2u] >> ((pos & 3u) * 8u)) & 0xFFu;
+}
+
+// Read a uint16 (little-endian) from byte position 'pos'
+uint read_u16(uint pos) {
+    return read_byte(pos) | (read_byte(pos + 1u) << 8u);
+}
+
+// Decode f16 → f32
+float decode_f16(uint bits) {
+    uint s = (bits & 0x8000u) << 16u;
+    uint e = (bits >> 10u) & 0x1Fu;
+    uint m = bits & 0x3FFu;
+    uint f;
+    if (e == 0u) {
+        if (m == 0u) { f = s; }
+        else {
+            e = 1u;
+            while ((m & 0x400u) == 0u) { m <<= 1u; e--; }
+            m &= 0x3FFu;
+            f = s | ((e + 112u) << 23u) | (m << 13u);
+        }
+    } else if (e == 31u) {
+        f = s | 0x7F800000u | (m << 13u);
+    } else {
+        f = s | ((e + 112u) << 23u) | (m << 13u);
+    }
+    return uintBitsToFloat(f);
+}
+
+void main() {
+    uint tid = gl_LocalInvocationID.x;   // 0..127
+    uint n   = gl_WorkGroupID.x;         // output row
+    uint b   = gl_WorkGroupID.y;         // batch element
+
+    if (n >= N || b >= B) return;
+
+    uint blocks_per_row = K / 32u;       // = 32
+    uint row_bytes = blocks_per_row * 18u; // = 576
+
+    // Thread mapping: 128 threads, 32 blocks → 4 threads per block
+    uint block_idx    = tid / 4u;         // which block (0..31)
+    uint quarter      = tid & 3u;         // which quarter of the block (0..3)
+    // Each quarter handles 8 values: quarter*8 .. quarter*8+7
+
+    float acc = 0.0;
+
+    if (block_idx < blocks_per_row) {
+        uint blk_byte = n * row_bytes + block_idx * 18u;
+
+        // Read scale
+        float scale = decode_f16(read_u16(blk_byte));
+
+        // Nibble data starts at blk_byte + 2
+        // Our 8 values start at nibble index quarter*8
+        // 2 nibbles per byte → 4 bytes to read
+        uint nib_start = blk_byte + 2u + quarter * 4u;
+
+        // Activation base for this block's values
+        uint act_base = b * K + block_idx * 32u + quarter * 8u;
+
+        for (uint i = 0u; i < 4u; i++) {
+            uint bval = read_byte(nib_start + i);
+            int lo = int(bval & 0xFu) - 8;
+            int hi = int((bval >> 4u) & 0xFu) - 8;
+
+            acc += (scale * float(lo)) * x[act_base + i * 2u];
+            acc += (scale * float(hi)) * x[act_base + i * 2u + 1u];
+        }
+    }
+
+    // Subgroup reduce (subgroup=128 = workgroup)
+    acc = subgroupAdd(acc);
+
+    if (tid == 0u) {
+        o[b * N + n] = acc;
+    }
+}

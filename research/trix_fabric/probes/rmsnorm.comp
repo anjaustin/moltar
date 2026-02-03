@@ -1,0 +1,43 @@
+#version 450
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+
+// RMSNorm: out[i] = (x[i] / rms) * weight[i]
+// where rms = sqrt(mean(x^2) + eps)
+//
+// Single workgroup of 128 threads for D_MODEL=1024 elements.
+// Each thread handles 8 elements, then subgroup reduce for sum-of-squares.
+
+layout(local_size_x = 128) in;
+
+layout(set = 0, binding = 0) readonly buffer Input   { float x[]; };
+layout(set = 0, binding = 1) readonly buffer Weight  { float w[]; };
+layout(set = 0, binding = 2) writeonly buffer Output { float o[]; };
+
+layout(push_constant) uniform Params {
+    uint n_elements;
+};
+
+void main() {
+    uint tid = gl_LocalInvocationID.x;
+    uint stride = n_elements / 128u;  // = 8 for n=1024
+
+    // Phase 1: compute partial sum of squares
+    float ss = 0.0;
+    uint base = tid * stride;
+    for (uint i = 0u; i < stride; i++) {
+        float v = x[base + i];
+        ss += v * v;
+    }
+
+    // Subgroup reduce (128 threads = 1 subgroup on PowerVR)
+    ss = subgroupAdd(ss);
+
+    // Phase 2: normalize and scale
+    float rms = sqrt(ss / float(n_elements) + 1e-6);
+    float inv_rms = 1.0 / rms;
+
+    for (uint i = 0u; i < stride; i++) {
+        uint idx = base + i;
+        o[idx] = x[idx] * inv_rms * w[idx];
+    }
+}

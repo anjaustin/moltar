@@ -1,0 +1,108 @@
+#version 450
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+
+// Coprocessor v2: single-shot shader, rapid redispatch via timeline.
+// Does the work and exits. No spin-wait. Driver-friendly.
+//
+// Operations selected by push constant:
+//   op=0: NOP
+//   op=1: SiLU on data[0..n-1], result in data[0..n-1]
+//   op=2: RMSNorm on data[0..n-1] with weights data[n..2n-1]
+//   op=3: SiLU(data[0..n-1]) * data[n..2n-1] (SwiGLU, gate=data[0..n], up=data[n..2n])
+//   op=4: Softmax on data[0..n-1]
+
+layout(local_size_x = 128) in;
+
+layout(set = 0, binding = 0) buffer Data { float d[]; };
+
+layout(push_constant) uniform Params {
+    uint op;
+    uint n;
+};
+
+shared float smem[4096];
+
+void main() {
+    uint tid = gl_LocalInvocationID.x;
+
+    if (op == 0u) {
+        // NOP — just return
+        return;
+    }
+
+    uint stride = (n + 127u) / 128u;
+
+    if (op == 1u) {
+        // SiLU: d[i] = d[i] / (1 + exp(-d[i]))
+        for (uint i = 0u; i < stride; i++) {
+            uint idx = tid * stride + i;
+            if (idx < n) {
+                float x = d[idx];
+                d[idx] = x / (1.0 + exp(-x));
+            }
+        }
+    }
+    else if (op == 2u) {
+        // RMSNorm: d[0..n-1] normalized, weights in d[n..2n-1]
+        float ss = 0.0;
+        for (uint i = 0u; i < stride; i++) {
+            uint idx = tid * stride + i;
+            if (idx < n) {
+                smem[idx] = d[idx];
+                ss += d[idx] * d[idx];
+            }
+        }
+        ss = subgroupAdd(ss);
+        barrier();
+        float inv_rms = 1.0 / sqrt(ss / float(n) + 1e-6);
+        for (uint i = 0u; i < stride; i++) {
+            uint idx = tid * stride + i;
+            if (idx < n) {
+                d[idx] = smem[idx] * inv_rms * d[n + idx];
+            }
+        }
+    }
+    else if (op == 3u) {
+        // SwiGLU: d[0..n-1] = SiLU(d[0..n-1]) * d[n..2n-1]
+        for (uint i = 0u; i < stride; i++) {
+            uint idx = tid * stride + i;
+            if (idx < n) {
+                float g = d[idx];
+                float silu_g = g / (1.0 + exp(-g));
+                d[idx] = silu_g * d[n + idx];
+            }
+        }
+    }
+    else if (op == 4u) {
+        // Softmax: find max, subtract, exp, normalize
+        float mx = -1e30;
+        for (uint i = 0u; i < stride; i++) {
+            uint idx = tid * stride + i;
+            if (idx < n) {
+                smem[idx] = d[idx];
+                mx = max(mx, d[idx]);
+            }
+        }
+        mx = subgroupMax(mx);
+        barrier();
+
+        float sum_exp = 0.0;
+        for (uint i = 0u; i < stride; i++) {
+            uint idx = tid * stride + i;
+            if (idx < n) {
+                smem[idx] = exp(smem[idx] - mx);
+                sum_exp += smem[idx];
+            }
+        }
+        sum_exp = subgroupAdd(sum_exp);
+        barrier();
+
+        float inv_sum = 1.0 / sum_exp;
+        for (uint i = 0u; i < stride; i++) {
+            uint idx = tid * stride + i;
+            if (idx < n) {
+                d[idx] = smem[idx] * inv_sum;
+            }
+        }
+    }
+}
