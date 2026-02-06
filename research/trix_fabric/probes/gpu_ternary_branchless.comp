@@ -1,0 +1,164 @@
+#version 450
+
+/*
+ * GPU Ternary GEMM - Branchless Integer Math
+ * 
+ * Key insight: We can decode trits to {-1, 0, +1} using pure integer math:
+ * 
+ * Encoding: 00=0, 01=+1, 10=-1, 11=0
+ * 
+ * Decode formula (branchless):
+ *   trit & 1 gives: 0→0, 1→1, 2→0, 3→1 (low bit)
+ *   trit & 2 gives: 0→0, 1→0, 2→2, 3→2 (high bit as 2)
+ *   
+ *   sign = 1 - (trit & 2)  → 0→1, 1→1, 2→-1, 3→-1
+ *   mask = trit & 1        → 0→0, 1→1, 2→0, 3→1
+ *   But we want: 0→0, 1→+1, 2→-1, 3→0
+ *   
+ * Better approach using XOR:
+ *   For trit in {0,1,2,3}:
+ *   - trit=0 (00): want 0
+ *   - trit=1 (01): want +1  
+ *   - trit=2 (10): want -1
+ *   - trit=3 (11): want 0
+ *   
+ *   Notice: we want 0 when both bits are same (00 or 11)
+ *   XOR of bits: 0^0=0, 0^1=1, 1^0=1, 1^1=0 ← gives us the mask!
+ *   
+ *   mask = (trit ^ (trit >> 1)) & 1  → 0→0, 1→1, 2→1, 3→0
+ *   sign = 1 - (trit & 2)            → 0→1, 1→1, 2→-1, 3→-1
+ *   weight = mask * sign             → 0→0, 1→1, 2→-1, 3→0 ✓
+ *
+ * Then: sum += weight * activation
+ * Which is: sum += (mask * sign) * activation
+ *         = sum += mask * (sign * activation)
+ *         = sum += mask * (sign < 0 ? -activation : activation)
+ *
+ * Or even simpler: 
+ *   if mask=0: add nothing
+ *   if mask=1 and sign=1: add activation
+ *   if mask=1 and sign=-1: subtract activation
+ *
+ * Branchless: sum += mask * sign * activation
+ *           = sum += ((trit ^ (trit >> 1)) & 1) * (1 - (trit & 2)) * activation
+ */
+
+#extension GL_EXT_shader_8bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int32 : require
+
+layout(local_size_x = 64) in;
+
+layout(binding = 0) readonly buffer Weights {
+    uint packed_weights[];  // uint32 for coalesced reads (16 trits per uint32)
+};
+
+layout(binding = 1) readonly buffer Activations {
+    int8_t activations[];
+};
+
+layout(binding = 2) readonly buffer Scales {
+    float scales[];
+};
+
+layout(binding = 3) writeonly buffer Output {
+    float output_data[];
+};
+
+layout(push_constant) uniform Params {
+    uint N;
+    uint K;
+};
+
+shared int32_t partial_sums[64];
+
+// Branchless trit decode: returns {-1, 0, +1} as int
+int decode_trit_branchless(uint trit) {
+    // mask = 1 if trit is 1 or 2 (the "active" values), 0 otherwise
+    int mask = int((trit ^ (trit >> 1u)) & 1u);
+    // sign = +1 if trit is 0 or 1, -1 if trit is 2 or 3
+    int sign = 1 - int(trit & 2u);
+    return mask * sign;
+}
+
+void main() {
+    uint row = gl_WorkGroupID.x;
+    uint tid = gl_LocalInvocationID.x;
+    
+    if (row >= N) return;
+    
+    uint elements_per_thread = K / 64u;
+    uint start_k = tid * elements_per_thread;
+    
+    // Row offset: K/16 uint32s per row (each uint32 = 16 trits)
+    uint row_offset = row * (K / 16u);
+    
+    int32_t sum = 0;
+    
+    // Process 16 elements at a time (one uint32 = 16 trits)
+    for (uint i = 0u; i < elements_per_thread; i += 16u) {
+        uint k = start_k + i;
+        uint word_idx = row_offset + (k / 16u);
+        uint packed = packed_weights[word_idx];
+        
+        // Unroll 16 trits from the uint32
+        // This is verbose but avoids loop overhead
+        
+        // Trits 0-3 (bits 0-7)
+        int w0 = decode_trit_branchless((packed >> 0u) & 3u);
+        int w1 = decode_trit_branchless((packed >> 2u) & 3u);
+        int w2 = decode_trit_branchless((packed >> 4u) & 3u);
+        int w3 = decode_trit_branchless((packed >> 6u) & 3u);
+        
+        // Trits 4-7 (bits 8-15)
+        int w4 = decode_trit_branchless((packed >> 8u) & 3u);
+        int w5 = decode_trit_branchless((packed >> 10u) & 3u);
+        int w6 = decode_trit_branchless((packed >> 12u) & 3u);
+        int w7 = decode_trit_branchless((packed >> 14u) & 3u);
+        
+        // Trits 8-11 (bits 16-23)
+        int w8 = decode_trit_branchless((packed >> 16u) & 3u);
+        int w9 = decode_trit_branchless((packed >> 18u) & 3u);
+        int w10 = decode_trit_branchless((packed >> 20u) & 3u);
+        int w11 = decode_trit_branchless((packed >> 22u) & 3u);
+        
+        // Trits 12-15 (bits 24-31)
+        int w12 = decode_trit_branchless((packed >> 24u) & 3u);
+        int w13 = decode_trit_branchless((packed >> 26u) & 3u);
+        int w14 = decode_trit_branchless((packed >> 28u) & 3u);
+        int w15 = decode_trit_branchless((packed >> 30u) & 3u);
+        
+        // Load activations and accumulate (integer multiply-add)
+        sum += w0 * int(activations[k + 0u]);
+        sum += w1 * int(activations[k + 1u]);
+        sum += w2 * int(activations[k + 2u]);
+        sum += w3 * int(activations[k + 3u]);
+        sum += w4 * int(activations[k + 4u]);
+        sum += w5 * int(activations[k + 5u]);
+        sum += w6 * int(activations[k + 6u]);
+        sum += w7 * int(activations[k + 7u]);
+        sum += w8 * int(activations[k + 8u]);
+        sum += w9 * int(activations[k + 9u]);
+        sum += w10 * int(activations[k + 10u]);
+        sum += w11 * int(activations[k + 11u]);
+        sum += w12 * int(activations[k + 12u]);
+        sum += w13 * int(activations[k + 13u]);
+        sum += w14 * int(activations[k + 14u]);
+        sum += w15 * int(activations[k + 15u]);
+    }
+    
+    partial_sums[tid] = sum;
+    barrier();
+    
+    // Reduction
+    for (uint stride = 32u; stride > 0u; stride >>= 1u) {
+        if (tid < stride) {
+            partial_sums[tid] += partial_sums[tid + stride];
+        }
+        barrier();
+    }
+    
+    if (tid == 0u) {
+        output_data[row] = float(partial_sums[0]) * scales[row];
+    }
+}

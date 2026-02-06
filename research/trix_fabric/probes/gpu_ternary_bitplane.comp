@@ -1,0 +1,120 @@
+#version 450
+
+/*
+ * GPU Ternary GEMM - Bit-Plane "Soft-Chip" Layout
+ * 
+ * Key insight: Restructure ternary weights into bit-planes for GPU-friendly access.
+ * 
+ * Standard trit encoding: 00=0, 01=+1, 10=-1, 11=0
+ *   bit0 (low): 1 if weight is non-zero (the "active" bit)
+ *   bit1 (high): 1 if weight is negative (the "sign" bit)
+ *
+ * Bit-plane layout:
+ *   active_plane[N * K / 32] = uint32 bitmask of which weights are non-zero
+ *   sign_plane[N * K / 32]   = uint32 bitmask of which weights are negative
+ *
+ * For each bit position:
+ *   active=0, sign=X → weight = 0
+ *   active=1, sign=0 → weight = +1
+ *   active=1, sign=1 → weight = -1
+ *
+ * Processing 32 weights at once:
+ *   active_bits = active_plane[word_idx]
+ *   sign_bits = sign_plane[word_idx]
+ *   
+ *   For each bit i:
+ *     if active_bits[i]:
+ *       if sign_bits[i]: sum -= activation[i]
+ *       else: sum += activation[i]
+ *
+ * This becomes: sum += popcount(active & ~sign & positive_acts) 
+ *             - popcount(active & sign & positive_acts)
+ *             - popcount(active & ~sign & negative_acts)
+ *             + popcount(active & sign & negative_acts)
+ *
+ * Actually simpler: process bit-by-bit but with bitwise ops
+ */
+
+#extension GL_EXT_shader_8bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int32 : require
+
+layout(local_size_x = 32) in;  // One thread per bit in uint32
+
+// Bit-planes: active mask and sign mask
+layout(binding = 0) readonly buffer ActivePlane {
+    uint active_plane[];  // N * K / 32 words
+};
+
+layout(binding = 1) readonly buffer SignPlane {
+    uint sign_plane[];    // N * K / 32 words
+};
+
+layout(binding = 2) readonly buffer Activations {
+    int8_t activations[];
+};
+
+layout(binding = 3) readonly buffer Scales {
+    float scales[];
+};
+
+layout(binding = 4) writeonly buffer Output {
+    float output_data[];
+};
+
+layout(push_constant) uniform Params {
+    uint N;
+    uint K;
+};
+
+shared int32_t partial_sums[32];
+
+void main() {
+    uint row = gl_WorkGroupID.x;
+    uint tid = gl_LocalInvocationID.x;  // 0-31, corresponds to bit position
+    
+    if (row >= N) return;
+    
+    // Each thread processes every 32nd weight (bit position tid in each word)
+    uint words_per_row = K / 32u;
+    uint row_offset = row * words_per_row;
+    
+    int32_t sum = 0;
+    
+    // Process all words in this row
+    for (uint w = 0u; w < words_per_row; w++) {
+        uint word_idx = row_offset + w;
+        uint active_bits = active_plane[word_idx];
+        uint sign_bits = sign_plane[word_idx];
+        
+        // Extract bit for this thread's position
+        uint bit_mask = 1u << tid;
+        bool is_active = (active_bits & bit_mask) != 0u;
+        bool is_negative = (sign_bits & bit_mask) != 0u;
+        
+        // Load activation for this position
+        uint k = w * 32u + tid;
+        int32_t act = int32_t(activations[k]);
+        
+        // Conditional accumulate (compiler should use predication, not branch)
+        if (is_active) {
+            sum += is_negative ? -act : act;
+        }
+    }
+    
+    // Store to shared memory for reduction
+    partial_sums[tid] = sum;
+    barrier();
+    
+    // Parallel reduction (32 threads -> 1)
+    for (uint stride = 16u; stride > 0u; stride >>= 1u) {
+        if (tid < stride) {
+            partial_sums[tid] += partial_sums[tid + stride];
+        }
+        barrier();
+    }
+    
+    if (tid == 0u) {
+        output_data[row] = float(partial_sums[0]) * scales[row];
+    }
+}

@@ -1,0 +1,65 @@
+#version 450
+
+// NO-REDUCTION GEMV SHADER FOR LOW-END GPUs (e.g., PowerVR without subgroup ops)
+// 
+// Strategy: One thread computes one complete output element
+// - No shared memory needed
+// - No barriers needed  
+// - No reduction needed
+// - Simple sequential loop over all K elements
+//
+// For Q4_0: each block has 32 weights
+
+#extension GL_EXT_shader_explicit_arithmetic_types : require
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_8bit_storage : require
+
+#define QUANT_K 32
+
+struct block_q4_0 {
+    float16_t d;
+    uint8_t qs[16];
+};
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(push_constant) uniform PushConstants {
+    uint M;      // number of rows (output size)
+    uint K;      // number of columns (input size)
+} pc;
+
+layout(binding = 0) readonly buffer A { block_q4_0 data_a[]; };
+layout(binding = 1) readonly buffer B { float data_b[]; };
+layout(binding = 2) writeonly buffer D { float data_d[]; };
+
+void main() {
+    uint row = gl_GlobalInvocationID.x;
+    
+    if (row >= pc.M) {
+        return;
+    }
+    
+    float sum = 0.0;
+    uint num_blocks = pc.K / QUANT_K;
+    
+    for (uint block_idx = 0; block_idx < num_blocks; block_idx++) {
+        uint ib = row * num_blocks + block_idx;
+        float scale = float(data_a[ib].d);
+        
+        for (uint i = 0; i < 16; i++) {
+            uint packed = uint(data_a[ib].qs[i]);
+            float w0 = float(int(packed & 0xF) - 8) * scale;
+            float w1 = float(int(packed >> 4) - 8) * scale;
+            
+            uint k0 = block_idx * QUANT_K + i * 2;
+            uint k1 = k0 + 1;
+            
+            sum += w0 * data_b[k0];
+            if (k1 < pc.K) {
+                sum += w1 * data_b[k1];
+            }
+        }
+    }
+    
+    data_d[row] = sum;
+}

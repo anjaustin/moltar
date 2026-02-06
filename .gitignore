@@ -294,4 +294,5 @@ research/*/models/
 *.safetensors
 *.gguf
 *.pte
-*.bin
+*.binmtkclient/
+research/qdrant-client/

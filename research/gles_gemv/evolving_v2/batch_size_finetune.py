@@ -1,0 +1,327 @@
+#!/usr/bin/env python3
+"""
+Batch Size Fine-Tuning Test
+
+Narrow down the optimal batch size in the 2-6 range.
+"""
+
+import torch
+import torch.nn.functional as F
+import pickle
+import time
+import json
+import gc
+from pathlib import Path
+from breathing_model import BreathingModel, BreathingModelConfig
+
+
+def train_with_batch_size(batch_size, tokens, log_every=1000):
+    """Train model with specific batch size."""
+    print(f"\n{'=' * 70}")
+    print(f"Testing batch_size={batch_size}")
+    print(f"{'=' * 70}")
+
+    # Create model
+    config = BreathingModelConfig(
+        vocab_size=50257,
+        embed_dim=128,
+        n_layers=4,
+        n_neurons_per_layer=128,
+        n_breathe=5,
+        evolve_every=1000,
+        decay_min=0.5,
+        decay_max=0.9,
+    )
+    model = BreathingModel(config)
+
+    # Adjust learning rate for batch size (linear scaling rule)
+    lr = 1e-3 * batch_size
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=0.01)
+
+    n_tokens = len(tokens) - 1
+    n_batches = n_tokens // batch_size
+
+    # Metrics
+    history = {
+        "batch_size": batch_size,
+        "lr": lr,
+        "checkpoints": [],
+    }
+
+    start_time = time.time()
+    total_loss = 0
+    total_correct = 0
+    tokens_processed = 0
+
+    print(f"  LR: {lr:.4f} (scaled for batch_size)")
+    print(f"  Total batches: {n_batches}")
+    print(f"  Training...")
+
+    for batch_idx in range(n_batches):
+        model.train()
+
+        # Accumulate gradients over batch
+        batch_loss = 0
+        batch_correct = 0
+
+        for i in range(batch_size):
+            idx = batch_idx * batch_size + i
+            if idx >= n_tokens:
+                break
+
+            logits = model.forward(tokens[idx])
+            loss = F.cross_entropy(logits.unsqueeze(0), torch.tensor([tokens[idx + 1]]))
+
+            # Scale loss for gradient accumulation
+            scaled_loss = loss / batch_size
+            scaled_loss.backward()
+
+            batch_loss += loss.item()
+            if logits.argmax().item() == tokens[idx + 1]:
+                batch_correct += 1
+
+            # Evolution (only on first item of batch to maintain frequency)
+            if i == 0:
+                model.maybe_evolve()
+
+        # Update weights
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        optimizer.step()
+        optimizer.zero_grad()
+
+        # Stats
+        total_loss += batch_loss
+        total_correct += batch_correct
+        tokens_processed += batch_size
+
+        # Logging
+        if (batch_idx + 1) % (log_every // batch_size) == 0:
+            avg_loss = total_loss / tokens_processed
+            ppl = torch.exp(torch.tensor(avg_loss)).item()
+            acc = total_correct / tokens_processed * 100
+            elapsed = time.time() - start_time
+            tps = tokens_processed / elapsed
+
+            history["checkpoints"].append(
+                {
+                    "step": tokens_processed,
+                    "batch": batch_idx + 1,
+                    "loss": avg_loss,
+                    "ppl": ppl,
+                    "acc": acc,
+                    "evolutions": model.total_evolutions,
+                    "elapsed": elapsed,
+                    "tok_per_sec": tps,
+                }
+            )
+
+            print(
+                f"    {tokens_processed:>6,}/{n_tokens:,} | "
+                f"Loss: {avg_loss:.3f} | PPL: {ppl:>6.0f} | "
+                f"Acc: {acc:>5.1f}% | {tps:>5.0f} tok/s"
+            )
+
+    # Final stats
+    final_loss = total_loss / tokens_processed
+    final_ppl = torch.exp(torch.tensor(final_loss)).item()
+    final_acc = total_correct / tokens_processed * 100
+    total_time = time.time() - start_time
+
+    history["final"] = {
+        "loss": final_loss,
+        "ppl": final_ppl,
+        "acc": final_acc,
+        "time": total_time,
+        "tok_per_sec": tokens_processed / total_time,
+    }
+
+    print(
+        f"\n  Final: PPL={final_ppl:.0f}, Acc={final_acc:.2f}%, "
+        f"Time={total_time:.1f}s, Speed={tokens_processed / total_time:.0f} tok/s"
+    )
+
+    # Cleanup
+    del model
+    del optimizer
+    gc.collect()
+    torch.cuda.empty_cache() if torch.cuda.is_available() else None
+
+    return history
+
+
+def main():
+    print("=" * 70)
+    print("BATCH SIZE FINE-TUNING (2, 3, 5, 6)")
+    print("=" * 70)
+
+    # Load data
+    print("\nLoading data...")
+    with open("wikitext2_clean_tokens.pkl", "rb") as f:
+        all_tokens = pickle.load(f)
+    tokens = all_tokens[:10001]  # 10k tokens
+    print(f"Using {len(tokens) - 1:,} tokens")
+
+    # Test batch sizes 2, 3, 5, 6 (around the optimal 4)
+    batch_sizes = [2, 3, 5, 6]
+    results = {}
+
+    Path("experiments/batch_size_finetune").mkdir(parents=True, exist_ok=True)
+
+    for bs in batch_sizes:
+        try:
+            history = train_with_batch_size(bs, tokens)
+            results[f"batch_{bs}"] = history
+
+            # Save incremental results
+            with open(
+                f"experiments/batch_size_finetune/results_batch{bs}.json", "w"
+            ) as f:
+                json.dump(history, f, indent=2)
+        except Exception as e:
+            print(f"\n  ERROR with batch_size={bs}: {e}")
+            import traceback
+
+            traceback.print_exc()
+            results[f"batch_{bs}"] = {"error": str(e)}
+
+    # Summary
+    print("\n" + "=" * 70)
+    print("SUMMARY - FINE-TUNED BATCH SIZES")
+    print("=" * 70)
+
+    # Include previous best (BS=4) for comparison
+    print(
+        f"\n{'Batch Size':<12} {'LR':<8} {'Final PPL':<12} {'Final Acc':<12} {'Time (s)':<10} {'Speed (tok/s)':<15}"
+    )
+    print("-" * 70)
+
+    # Reference: BS=1 and BS=4 from previous run
+    print(
+        f"{'1 (ref)':<12} {'0.0010':<8} {'2173':<12} {'8.66':<12} {'126.1':<10} {'79':<15}"
+    )
+    print(
+        f"{'2':<12} {results.get('batch_2', {}).get('lr', 'N/A'):<8} "
+        f"{results.get('batch_2', {}).get('final', {}).get('ppl', 'ERROR'):<12.0f} "
+        f"{results.get('batch_2', {}).get('final', {}).get('acc', 0):<12.2f} "
+        f"{results.get('batch_2', {}).get('final', {}).get('time', 0):<10.1f} "
+        f"{results.get('batch_2', {}).get('final', {}).get('tok_per_sec', 0):<15.0f}"
+    )
+    print(
+        f"{'3':<12} {results.get('batch_3', {}).get('lr', 'N/A'):<8} "
+        f"{results.get('batch_3', {}).get('final', {}).get('ppl', 'ERROR'):<12.0f} "
+        f"{results.get('batch_3', {}).get('final', {}).get('acc', 0):<12.2f} "
+        f"{results.get('batch_3', {}).get('final', {}).get('time', 0):<10.1f} "
+        f"{results.get('batch_3', {}).get('final', {}).get('tok_per_sec', 0):<15.0f}"
+    )
+    print(
+        f"{'4 (prev best)':<12} {'0.0040':<8} {'1881':<12} {'9.54':<12} {'70.8':<10} {'141':<15}"
+    )
+    print(
+        f"{'5':<12} {results.get('batch_5', {}).get('lr', 'N/A'):<8} "
+        f"{results.get('batch_5', {}).get('final', {}).get('ppl', 'ERROR'):<12.0f} "
+        f"{results.get('batch_5', {}).get('final', {}).get('acc', 0):<12.2f} "
+        f"{results.get('batch_5', {}).get('final', {}).get('time', 0):<10.1f} "
+        f"{results.get('batch_5', {}).get('final', {}).get('tok_per_sec', 0):<15.0f}"
+    )
+    print(
+        f"{'6':<12} {results.get('batch_6', {}).get('lr', 'N/A'):<8} "
+        f"{results.get('batch_6', {}).get('final', {}).get('ppl', 'ERROR'):<12.0f} "
+        f"{results.get('batch_6', {}).get('final', {}).get('acc', 0):<12.2f} "
+        f"{results.get('batch_6', {}).get('final', {}).get('time', 0):<10.1f} "
+        f"{results.get('batch_6', {}).get('final', {}).get('tok_per_sec', 0):<15.0f}"
+    )
+
+    # Find best
+    valid_results = [
+        (bs, results[f"batch_{bs}"])
+        for bs in batch_sizes
+        if f"batch_{bs}" in results and "error" not in results[f"batch_{bs}"]
+    ]
+
+    if valid_results:
+        best_ppl = min(valid_results, key=lambda x: x[1]["final"]["ppl"])
+        best_acc = max(valid_results, key=lambda x: x[1]["final"]["acc"])
+        best_speed = max(valid_results, key=lambda x: x[1]["final"]["tok_per_sec"])
+
+        print("\n" + "-" * 70)
+        print("BEST CONFIGURATIONS:")
+        print(
+            f"  Best PPL:    batch_size={best_ppl[0]} (PPL={best_ppl[1]['final']['ppl']:.0f})"
+        )
+        print(
+            f"  Best Acc:    batch_size={best_acc[0]} (Acc={best_acc[1]['final']['acc']:.2f}%)"
+        )
+        print(
+            f"  Best Speed:  batch_size={best_speed[0]} ({best_speed[1]['final']['tok_per_sec']:.0f} tok/s)"
+        )
+
+        # Overall best considering BS=4 from previous
+        all_bs = [
+            (1, {"final": {"ppl": 2173, "acc": 8.66, "tok_per_sec": 79}}),
+            (2, results.get("batch_2", {}).get("final", {})),
+            (3, results.get("batch_3", {}).get("final", {})),
+            (4, {"final": {"ppl": 1881, "acc": 9.54, "tok_per_sec": 141}}),
+            (5, results.get("batch_5", {}).get("final", {})),
+            (6, results.get("batch_6", {}).get("final", {})),
+        ]
+
+        # Filter valid
+        valid_all = [(bs, data) for bs, data in all_bs if data and "ppl" in data]
+
+        if valid_all:
+            overall_best_ppl = min(valid_all, key=lambda x: x[1]["ppl"])
+            print(
+                f"\n  OVERALL BEST PPL: batch_size={overall_best_ppl[0]} (PPL={overall_best_ppl[1]['ppl']:.0f})"
+            )
+
+            # Efficiency
+            print("\n  EFFICIENCY (PPL improvement per second):")
+            # Initial PPL for BS=1 was ~5562
+            init_ppl = 5562
+            for bs, data in valid_all:
+                if "ppl" in data and "time" in data:
+                    improvement = init_ppl - data["ppl"]
+                    efficiency = improvement / data["time"]
+                    print(f"    BS={bs}: {efficiency:.1f} PPL-points/sec")
+
+    # Convergence comparison
+    print("\n" + "=" * 70)
+    print("CONVERGENCE COMPARISON")
+    print("=" * 70)
+    print("\nStep     BS=2      BS=3      BS=4(ref) BS=5      BS=6")
+    print("-" * 60)
+
+    for i in range(10):
+        step = (i + 1) * 1000
+        row = f"{step:>6}"
+        for bs in [2, 3, 4, 5, 6]:
+            if bs == 4:
+                # Reference from previous run
+                ref_ppls = [4910, 3183, 2456, 2118, 2207, 2099, 2021, 1939, 1867, 1881]
+                if i < len(ref_ppls):
+                    row += f"  {ref_ppls[i]:>7.0f}"
+                else:
+                    row += "       -"
+            else:
+                key = f"batch_{bs}"
+                if key in results and "error" not in results[key]:
+                    checkpoints = results[key]["checkpoints"]
+                    if i < len(checkpoints):
+                        row += f"  {checkpoints[i]['ppl']:>7.0f}"
+                    else:
+                        row += "       -"
+                else:
+                    row += "       -"
+        print(row)
+
+    # Save all results
+    with open("experiments/batch_size_finetune/all_results.json", "w") as f:
+        json.dump(results, f, indent=2)
+
+    print("\n" + "=" * 70)
+    print("Results saved to experiments/batch_size_finetune/")
+    print("=" * 70)
+
+
+if __name__ == "__main__":
+    main()

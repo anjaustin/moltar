@@ -1,0 +1,117 @@
+#version 450
+
+/*
+ * GPU Ternary GEMM - Sign-bit Trick
+ * 
+ * Key insight: Instead of multiply, use conditional negate via XOR.
+ * 
+ * For ternary {-1, 0, +1}:
+ *   weight * activation = 
+ *     if weight == +1: +activation
+ *     if weight == -1: -activation (= ~activation + 1 = activation XOR 0xFFFFFFFF + 1)
+ *     if weight == 0:  0
+ *
+ * This can be done with:
+ *   mask = (trit == 1 || trit == 2) ? 0xFFFFFFFF : 0  (active mask)
+ *   sign = (trit == 2) ? 0xFFFFFFFF : 0               (negate mask)
+ *   result = ((activation ^ sign) - sign) & mask
+ *
+ * Or simpler with select:
+ *   result = (trit == 1) ? activation : (trit == 2) ? -activation : 0
+ *
+ * But GPU select is often just as expensive as branches.
+ * Let's try yet another approach: LUT via shared memory.
+ */
+
+#extension GL_EXT_shader_8bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int32 : require
+
+layout(local_size_x = 64) in;
+
+layout(binding = 0) readonly buffer Weights {
+    uint packed_weights[];  // uint32 for coalesced reads
+};
+
+layout(binding = 1) readonly buffer Activations {
+    int8_t activations[];
+};
+
+layout(binding = 2) readonly buffer Scales {
+    float scales[];
+};
+
+layout(binding = 3) writeonly buffer Output {
+    float output_data[];
+};
+
+layout(push_constant) uniform Params {
+    uint N;
+    uint K;
+};
+
+// Shared memory LUT: trit -> weight
+shared int decode_lut[4];  // [0, +1, -1, 0]
+shared int32_t partial_sums[64];
+
+void main() {
+    uint row = gl_WorkGroupID.x;
+    uint tid = gl_LocalInvocationID.x;
+    
+    // Initialize LUT (only thread 0 needs to, but all can)
+    if (tid < 4u) {
+        int lut_vals[4] = int[4](0, 1, -1, 0);
+        decode_lut[tid] = lut_vals[tid];
+    }
+    barrier();
+    
+    if (row >= N) return;
+    
+    uint elements_per_thread = K / 64u;
+    uint start_k = tid * elements_per_thread;
+    uint row_offset = row * (K / 16u);
+    
+    int32_t sum = 0;
+    
+    // Process 16 elements at a time (one uint32 = 16 trits)
+    for (uint i = 0u; i < elements_per_thread; i += 16u) {
+        uint k = start_k + i;
+        uint word_idx = row_offset + (k / 16u);
+        uint packed = packed_weights[word_idx];
+        
+        // Decode via shared memory LUT (should be fast - L1 cached)
+        // Then accumulate with integer multiply (weight is only {-1,0,+1})
+        
+        // Manually unroll to avoid loop overhead
+        sum += decode_lut[(packed >> 0u) & 3u] * int(activations[k + 0u]);
+        sum += decode_lut[(packed >> 2u) & 3u] * int(activations[k + 1u]);
+        sum += decode_lut[(packed >> 4u) & 3u] * int(activations[k + 2u]);
+        sum += decode_lut[(packed >> 6u) & 3u] * int(activations[k + 3u]);
+        sum += decode_lut[(packed >> 8u) & 3u] * int(activations[k + 4u]);
+        sum += decode_lut[(packed >> 10u) & 3u] * int(activations[k + 5u]);
+        sum += decode_lut[(packed >> 12u) & 3u] * int(activations[k + 6u]);
+        sum += decode_lut[(packed >> 14u) & 3u] * int(activations[k + 7u]);
+        sum += decode_lut[(packed >> 16u) & 3u] * int(activations[k + 8u]);
+        sum += decode_lut[(packed >> 18u) & 3u] * int(activations[k + 9u]);
+        sum += decode_lut[(packed >> 20u) & 3u] * int(activations[k + 10u]);
+        sum += decode_lut[(packed >> 22u) & 3u] * int(activations[k + 11u]);
+        sum += decode_lut[(packed >> 24u) & 3u] * int(activations[k + 12u]);
+        sum += decode_lut[(packed >> 26u) & 3u] * int(activations[k + 13u]);
+        sum += decode_lut[(packed >> 28u) & 3u] * int(activations[k + 14u]);
+        sum += decode_lut[(packed >> 30u) & 3u] * int(activations[k + 15u]);
+    }
+    
+    partial_sums[tid] = sum;
+    barrier();
+    
+    for (uint stride = 32u; stride > 0u; stride >>= 1u) {
+        if (tid < stride) {
+            partial_sums[tid] += partial_sums[tid + stride];
+        }
+        barrier();
+    }
+    
+    if (tid == 0u) {
+        output_data[row] = float(partial_sums[0]) * scales[row];
+    }
+}
