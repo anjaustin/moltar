@@ -2,6 +2,64 @@
 
 A fresh start for auditable security research and embedded device development.
 
+## LFM2-350M on MT6855V (Dimensity 930) - 57+ tok/s
+
+**Optimized llama.cpp inference for Motorola Moto G Power 5G 2023**
+
+### Performance Results
+
+| Metric | Performance |
+|--------|-------------|
+| Token Generation | **57.40 tok/s** |
+| Prompt Processing | **251.75 tok/s** |
+| Model | LFM2-350M Q4_0 (207 MB) |
+| Context | 128K supported |
+
+### Critical Build Configuration
+
+The MT6855V (Dimensity 930) has **DOTPROD support** (`asimddp` in `/proc/cpuinfo`). You MUST enable it:
+
+```bash
+# Build with DOTPROD enabled (CRITICAL for 57+ tok/s)
+cmake -S . -B build-android \
+  -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake \
+  -DANDROID_ABI=arm64-v8a \
+  -DANDROID_NATIVE_API_LEVEL=24 \
+  -DCMAKE_C_FLAGS="-march=armv8.2-a+dotprod+fp16" \
+  -DCMAKE_CXX_FLAGS="-march=armv8.2-a+dotprod+fp16" \
+  -DCMAKE_BUILD_TYPE=Release
+
+make -j8 llama-bench
+```
+
+### Optimal Runtime Configuration
+
+```bash
+# Use big cores (Cortex-A78) with 2 threads
+taskset c0 ./llama-bench -m LFM2-350M-Q4_0.gguf -t 2
+
+# c0 = 0xC0 = cores 6-7 (big Cortex-A78 cores)
+# Cores 0-5 are little Cortex-A55 cores - avoid them for inference
+```
+
+### CPU Topology
+
+```
+MT6855V (Dimensity 930):
+  Cores 0-5: Cortex-A55 (little) @ 2.0 GHz
+  Cores 6-7: Cortex-A78 (big) @ 2.2 GHz
+  
+Features: fp asimd aes pmull sha1 sha2 crc32 atomics fphp asimdhp asimddp
+          ^^^^^^^^
+          DOTPROD SUPPORTED - use -march=armv8.2-a+dotprod+fp16
+```
+
+### Performance Without DOTPROD
+
+Without the `+dotprod` flag, performance drops to ~32 tok/s (44% slower).
+
+---
+
 ## About
 
 This repository provides a clean foundation for conducting rigorous, reproducible security research with proper methodological controls. It includes essential tools for device connection and research environment setup.
