@@ -2,7 +2,7 @@
 
 A fresh start for auditable security research and embedded device development.
 
-## LFM2-350M on MT6855V (Dimensity 930) - 57+ tok/s
+## LFM2-350M on MT6855V (Dimensity 930) - 60 tok/s
 
 **Optimized llama.cpp inference for Motorola Moto G Power 5G 2023**
 
@@ -10,17 +10,25 @@ A fresh start for auditable security research and embedded device development.
 
 | Metric | Performance |
 |--------|-------------|
-| Token Generation | **57.40 tok/s** |
-| Prompt Processing | **251.75 tok/s** |
+| Token Generation | **59.82 tok/s** |
+| Prompt Processing | **260.65 tok/s** |
 | Model | LFM2-350M Q4_0 (207 MB) |
 | Context | 128K supported |
+
+### Optimization Journey
+
+| Configuration | Token Gen | Improvement |
+|---------------|-----------|-------------|
+| Without DOTPROD | 32 tok/s | baseline |
+| With DOTPROD | 57.50 tok/s | +80% |
+| **DOTPROD + Flash Attention** | **59.82 tok/s** | **+87%** |
 
 ### Critical Build Configuration
 
 The MT6855V (Dimensity 930) has **DOTPROD support** (`asimddp` in `/proc/cpuinfo`). You MUST enable it:
 
 ```bash
-# Build with DOTPROD enabled (CRITICAL for 57+ tok/s)
+# Build with DOTPROD enabled (CRITICAL for 60 tok/s)
 cmake -S . -B build-android \
   -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake \
   -DANDROID_ABI=arm64-v8a \
@@ -35,11 +43,12 @@ make -j8 llama-bench
 ### Optimal Runtime Configuration
 
 ```bash
-# Use big cores (Cortex-A78) with 2 threads
-taskset c0 ./llama-bench -m LFM2-350M-Q4_0.gguf -t 2
+# Best performance: big cores + 2 threads + flash attention
+taskset c0 ./llama-bench -m LFM2-350M-Q4_0.gguf -t 2 -fa 1
 
 # c0 = 0xC0 = cores 6-7 (big Cortex-A78 cores)
 # Cores 0-5 are little Cortex-A55 cores - avoid them for inference
+# -fa 1 = enable flash attention (+3-4% speedup)
 ```
 
 ### CPU Topology
@@ -54,9 +63,35 @@ Features: fp asimd aes pmull sha1 sha2 crc32 atomics fphp asimdhp asimddp
           DOTPROD SUPPORTED - use -march=armv8.2-a+dotprod+fp16
 ```
 
+### Performance Analysis (simpleperf profiling)
+
+| Function | % Cycles | Notes |
+|----------|----------|-------|
+| `ggml_gemv_q4_0_4x4_q8_0` | 35.1% | Q4_0 GEMV - uses DOTPROD |
+| `ggml_vec_dot_q6_K_q8_K` | 18.3% | Token embedding (Q6_K) |
+| `ggml_gemm_q4_0_4x4_q8_0` | 11.2% | Batch GEMM |
+| OpenMP synchronization | 7.4% | Thread sync overhead |
+| Tensor repacking | 3.5% | 4x4 block format |
+
+The model uses Q4_0 for weights (92 tensors) and Q6_K for the token embedding (1 tensor).
+Q6_K provides better quality for the frequently-accessed embedding layer.
+
+### Why This is Near-Optimal
+
+1. **DOTPROD enabled**: Using `vdotq_laneq_s32` instruction
+2. **INT accumulation**: Accumulates in int32, converts to float once per block
+3. **4x4 blocking**: Optimal for NEON register utilization
+4. **2 threads optimal**: Single thread = 38.84 tok/s (32% slower)
+5. **Flash attention**: Reduces memory bandwidth pressure
+
+Further gains would require:
+- Hardware with i8mm support (INT8 matrix multiply)
+- Re-quantizing model to pure Q4_0 (quality tradeoff)
+- Smaller model variant
+
 ### Performance Without DOTPROD
 
-Without the `+dotprod` flag, performance drops to ~32 tok/s (44% slower).
+Without the `+dotprod` flag, performance drops to ~32 tok/s (87% slower than optimal).
 
 ---
 
