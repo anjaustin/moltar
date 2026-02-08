@@ -1,60 +1,78 @@
 #!/bin/bash
-# rebuild_llama_mt6855v.sh - Rebuild llama.cpp with MT6855V Assembly Optimization
+# rebuild_llama_mt6855v.sh - Rebuild llama.cpp with MT6855V DOTPROD Optimization
+#
+# Builds llama-bench and llama-cli for Android arm64-v8a
+# with armv8.2-a+dotprod+fp16 (SDOT instructions for Q4_0 GEMV)
+#
+# Requirements:
+#   - Android NDK r27c+ at /opt/android-ndk-r27c or $ANDROID_NDK
+#   - cmake 3.16+
 
 set -e
 
-echo "🔧 Rebuilding llama.cpp with MT6855V Assembly Optimization"
-echo "========================================================="
+echo "Rebuilding llama.cpp with MT6855V DOTPROD optimization"
+echo "======================================================="
 
-# Go to llama.cpp directory
-cd research/llama.cpp
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LLAMA_DIR="${SCRIPT_DIR}/research/llama.cpp"
 
-# Clean previous build
-echo "Cleaning previous build..."
-rm -rf build-android-vulkan-mt6855v
+if [ ! -f "${LLAMA_DIR}/CMakeLists.txt" ]; then
+    echo "Error: llama.cpp not found at ${LLAMA_DIR}"
+    echo "Run: git clone https://github.com/ggerganov/llama.cpp.git ${LLAMA_DIR}"
+    exit 1
+fi
 
-# Create build directory with MT6855V optimization
-echo "Creating build directory for MT6855V..."
-mkdir -p build-android-vulkan-mt6855v
-cd build-android-vulkan-mt6855v
+# Android NDK detection
+NDK="${ANDROID_NDK:-/opt/android-ndk-r27c}"
+if [ ! -d "$NDK" ]; then
+    echo "Error: Android NDK not found at $NDK"
+    echo "Set ANDROID_NDK or install to /opt/android-ndk-r27c"
+    exit 1
+fi
 
-# Configure with MT6855V specific optimizations
-echo "Configuring build with MT6855V optimizations..."
+TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake"
+if [ ! -f "$TOOLCHAIN_FILE" ]; then
+    echo "Error: Android toolchain not found at $TOOLCHAIN_FILE"
+    exit 1
+fi
 
-# Android NDK (adjust path as needed)
-NDK="${ANDROID_NDK:-$HOME/Library/Android/sdk/ndk/28.2.13676358}"
-TOOLCHAIN="$NDK/toolchains/llvm/prebuilt/darwin-x86_64"
+BUILD_DIR="${LLAMA_DIR}/build-android"
 
-# MT6855V specific flags for Cortex-A78/A55
-ARCH_FLAGS="-march=armv8.2-a+dotprod+fp16 -mtune=cortex-a78"
-ANDROID_ABI="arm64-v8a"
-ANDROID_PLATFORM="android-28"
+# MT6855V specific flags: Cortex-A78/A55 with DOTPROD + FP16
+# This enables SDOT instructions which are critical for Q4_0 GEMV performance
+ARCH_FLAGS="-march=armv8.2-a+dotprod+fp16"
 
-# Configure CMake with assembly optimization
-cmake .. \
-    -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN/build/cmake/android.toolchain.cmake" \
-    -DANDROID_ABI=$ANDROID_ABI \
-    -DANDROID_PLATFORM=$ANDROID_PLATFORM \
-    -DCMAKE_BUILD_TYPE=Release \
+echo "NDK:        $NDK"
+echo "Build dir:  $BUILD_DIR"
+echo "Arch flags: $ARCH_FLAGS"
+echo ""
+
+# Clean and configure
+if [ "$1" = "clean" ]; then
+    echo "Cleaning previous build..."
+    rm -rf "$BUILD_DIR"
+fi
+
+mkdir -p "$BUILD_DIR"
+
+echo "Configuring CMake..."
+cmake -S "$LLAMA_DIR" -B "$BUILD_DIR" \
+    -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN_FILE" \
+    -DANDROID_ABI=arm64-v8a \
+    -DANDROID_NATIVE_API_LEVEL=24 \
     -DCMAKE_C_FLAGS="$ARCH_FLAGS" \
     -DCMAKE_CXX_FLAGS="$ARCH_FLAGS" \
-    -DGGML_CPU_KLEIDIAI=ON \
-    -DGGML_VULKAN=OFF \
-    -DLLAMA_BUILD_TESTS=OFF \
-    -DLLAMA_BUILD_EXAMPLES=ON \
-    -DLLAMA_BUILD_SERVER=OFF \
-    -DCMAKE_C_FLAGS_RELEASE="-O3 -DNDEBUG" \
-    -DCMAKE_CXX_FLAGS_RELEASE="-O3 -DNDEBUG" \
-    -DCMAKE_INSTALL_PREFIX="$(pwd)/install"
-
-echo "Building llama.cpp with MT6855V optimizations..."
-make -j$(sysctl -n hw.ncpu)
-
-echo "✅ Build complete!"
-echo ""
-echo "Built files:"
-ls -la bin/ | head -5
+    -DCMAKE_BUILD_TYPE=Release \
+    -DGGML_OPENMP=OFF
 
 echo ""
-echo "🚀 Ready for deployment to Motorola device!"
-echo "   Next: Copy the optimized binaries to device and test performance"
+echo "Building ($(nproc) threads)..."
+cmake --build "$BUILD_DIR" --config Release -j$(nproc) -- llama-bench llama-cli
+
+echo ""
+echo "Build complete!"
+echo ""
+echo "Binaries:"
+ls -lh "$BUILD_DIR/bin/llama-bench" "$BUILD_DIR/bin/llama-cli" 2>/dev/null
+echo ""
+echo "Next: ./deploy_to_device.sh"
