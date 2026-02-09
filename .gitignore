@@ -300,6 +300,7 @@ research_backup_*.tar.gz
 data_backup_*.zip
 
 # AI Model Files (large downloads, users should download themselves)
+data/
 research/brack/models/
 research/*/models/
 *.safetensors
