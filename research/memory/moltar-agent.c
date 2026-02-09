@@ -1,17 +1,22 @@
 /* ==========================================================================
- * Moltar Agent — Multi-turn LLM with Working Memory
+ * Moltar Agent — Multi-turn LLM with Three-Layer Memory
  * ==========================================================================
  * Links against libllama.so (LFM2 inference) + LCVDB (semantic working memory).
+ * Optionally calls ColBERT RAG pipeline via subprocess for knowledge retrieval.
+ *
+ * Three memory layers:
+ *   1. LCVDB working memory  (23 us)  — conversation turn recall
+ *   2. ColBERT knowledge     (80 ms)  — document retrieval via subprocess
+ *   3. LFM2-1.2B generation  (21 tok/s) — with merged context
  *
  * Each conversation turn:
  *   1. Read user input
- *   2. Search LCVDB for top-3 related prior turns → build context prefix
- *   3. Tokenize full prompt (context + user input)
- *   4. Generate response via llama_decode + sampling
- *   5. Extract hidden state via llama_get_embeddings_ith(-1) → 2048D float
- *   6. Project to 48D int8 via moltar_proj_apply()
- *   7. Insert into LCVDB with turn metadata
- *   8. Print response, loop
+ *   2. Search LCVDB for top-3 related prior turns
+ *   3. (Optional) Run ColBERT retrieval for knowledge context
+ *   4. Build ChatML prompt merging working memory + knowledge
+ *   5. Generate response via llama_decode + sampling
+ *   6. Extract hidden state → project → insert into LCVDB
+ *   7. Print response, loop
  *
  * Build with NDK clang, link against libllama.so + LCVDB (static).
  * ========================================================================== */
@@ -20,6 +25,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <unistd.h>
 
 #include "llama.h"
 #include "ggml-backend.h"
@@ -31,13 +37,24 @@
 
 #define MAX_TURNS       256      /* max conversation turns in LCVDB         */
 #define MAX_CONTEXT     3        /* top-K related turns to prepend          */
+#undef  MAX_INPUT
 #define MAX_INPUT       1024     /* max user input chars                    */
 #define MAX_RESPONSE    512      /* max generated tokens per turn           */
 #define MAX_PROMPT_TOKENS 2048   /* max tokens in full prompt               */
 #define MAX_TURN_TEXT   2048     /* max stored text per turn                */
+#define MAX_KNOWLEDGE   4096     /* max chars of RAG knowledge context      */
+#define MAX_PROMPT_BUF  16384    /* prompt buffer (room for all context)    */
 
 /* Projection seed "MOLT" */
 #define PROJ_SEED       0x4D4F4C54
+
+/* RAG defaults (all paths on device) */
+#define RAG_BASE        "/data/local/tmp"
+#define RAG_COLBERT     RAG_BASE "/LFM2-ColBERT-350M-Q4_0.gguf"
+#define RAG_EMBEDDING   RAG_BASE "/llama-embedding"
+#define RAG_SEARCH      RAG_BASE "/moltar_rag"
+#define RAG_INDEX       RAG_BASE "/rag_index"
+#define RAG_TOP_K       2        /* top-K knowledge chunks to retrieve      */
 
 /* ---------- Turn storage ---------- */
 
@@ -59,6 +76,133 @@ static void      *vec_buf;
 
 static moltar_proj_t proj;
 
+/* ---------- RAG Configuration ---------- */
+
+typedef struct {
+    int   enabled;
+    char  colbert_model[256];
+    char  embedding_bin[256];
+    char  search_bin[256];
+    char  index_dir[256];
+    int   top_k;
+    int   n_chunks;        /* from manifest, 0 = not loaded */
+} rag_config_t;
+
+static rag_config_t rag_cfg;
+
+/* ---------- RAG: Knowledge Retrieval via Subprocess ---------- */
+
+/* Load the chunk count from the index manifest */
+static int rag_load_manifest(rag_config_t *cfg) {
+    char path[512];
+    snprintf(path, sizeof(path), "%s/manifest.txt", cfg->index_dir);
+    FILE *f = fopen(path, "r");
+    if (!f) return 0;
+    int n = 0;
+    if (fscanf(f, "%d", &n) != 1) n = 0;
+    fclose(f);
+    return n;
+}
+
+/* Run ColBERT retrieval for a query. Returns knowledge text in out_buf.
+ *
+ * Steps:
+ *   1. llama-embedding embeds the query → tmp file
+ *   2. moltar_rag search finds top-K chunks
+ *   3. Read chunk text files and concatenate
+ *
+ * This shells out to external binaries because the ColBERT model
+ * (209 MB) can't coexist in RAM with LFM2-1.2B (661 MB).
+ * The OS handles memory pressure via mmap page eviction/fault-in.
+ */
+static int rag_retrieve(const rag_config_t *cfg, const char *query,
+                        char *out_buf, int out_max) {
+    if (!cfg->enabled || cfg->n_chunks <= 0) return 0;
+
+    char cmd[2048];
+    char emb_path[256];
+    char results_path[256];
+
+    snprintf(emb_path, sizeof(emb_path), "%s/rag_query_agent.emb", RAG_BASE);
+    snprintf(results_path, sizeof(results_path), "%s/rag_results_agent.txt", RAG_BASE);
+
+    /* Step 1: Embed query with ColBERT model */
+    fprintf(stderr, "[rag] Embedding query...\n");
+    snprintf(cmd, sizeof(cmd),
+        "export LD_LIBRARY_PATH=%s && "
+        "taskset c0 %s "
+        "-m %s -c 1024 -p \"%s\" "
+        "--pooling none --embd-normalize -1 --embd-output-format raw "
+        "-t 2 --no-warmup 2>/dev/null > %s",
+        RAG_BASE, cfg->embedding_bin, cfg->colbert_model, query, emb_path);
+
+    int ret = system(cmd);
+    if (ret != 0) {
+        fprintf(stderr, "[rag] WARN: embedding failed (ret=%d)\n", ret);
+        return 0;
+    }
+
+    /* Step 2: MaxSim search */
+    fprintf(stderr, "[rag] Searching %d chunks...\n", cfg->n_chunks);
+    snprintf(cmd, sizeof(cmd),
+        "taskset c0 %s search %s %s %d %d > %s 2>/dev/null",
+        cfg->search_bin, emb_path, cfg->index_dir,
+        cfg->n_chunks, cfg->top_k, results_path);
+
+    ret = system(cmd);
+    if (ret != 0) {
+        fprintf(stderr, "[rag] WARN: search failed (ret=%d)\n", ret);
+        return 0;
+    }
+
+    /* Step 3: Read results and collect chunk text */
+    FILE *f = fopen(results_path, "r");
+    if (!f) return 0;
+
+    int pos = 0;
+    char line[256];
+    int n_results = 0;
+
+    while (fgets(line, sizeof(line), f) && n_results < cfg->top_k) {
+        int rank, score, chunk_id;
+        if (sscanf(line, "%d|%d|%d", &rank, &score, &chunk_id) != 3)
+            continue;
+
+        /* Read chunk text file */
+        char chunk_path[512];
+        snprintf(chunk_path, sizeof(chunk_path),
+                 "%s/chunk_%d.txt", cfg->index_dir, chunk_id);
+
+        FILE *cf = fopen(chunk_path, "r");
+        if (!cf) continue;
+
+        /* Read chunk text */
+        char chunk_text[2048];
+        int chunk_len = (int)fread(chunk_text, 1, sizeof(chunk_text) - 1, cf);
+        fclose(cf);
+        chunk_text[chunk_len] = '\0';
+
+        /* Strip trailing whitespace */
+        while (chunk_len > 0 &&
+               (chunk_text[chunk_len-1] == '\n' || chunk_text[chunk_len-1] == ' '))
+            chunk_text[--chunk_len] = '\0';
+
+        /* Append to output */
+        if (pos + chunk_len + 10 < out_max) {
+            pos += snprintf(out_buf + pos, out_max - pos,
+                            "- %s\n", chunk_text);
+            n_results++;
+        }
+
+        fprintf(stderr, "[rag]   Chunk %d (score=%d): %.60s...\n",
+                chunk_id, score, chunk_text);
+    }
+
+    fclose(f);
+    fprintf(stderr, "[rag] Retrieved %d knowledge chunks\n", n_results);
+    return pos;
+}
+
 /* ---------- Helpers ---------- */
 
 static void print_usage(const char *argv0) {
@@ -66,20 +210,29 @@ static void print_usage(const char *argv0) {
         "Usage: %s <model.gguf> [options]\n"
         "\n"
         "Options:\n"
-        "  -t N    threads for generation (default: 2)\n"
-        "  -c N    context size (default: 4096)\n"
-        "  -n N    max tokens per response (default: %d)\n"
-        "  --temp F  temperature (default: 0.7)\n"
-        "  --top-k N top-k sampling (default: 40)\n"
-        "  --top-p F top-p sampling (default: 0.9)\n"
+        "  -t N         threads for generation (default: 2)\n"
+        "  -c N         context size (default: 4096)\n"
+        "  -n N         max tokens per response (default: %d)\n"
+        "  --temp F     temperature (default: 0.7)\n"
+        "  --top-k N    top-k sampling (default: 40)\n"
+        "  --top-p F    top-p sampling (default: 0.9)\n"
         "  --no-memory  disable LCVDB working memory\n"
+        "  --rag        enable ColBERT knowledge retrieval\n"
+        "  --no-rag     disable ColBERT knowledge retrieval (default)\n"
+        "  --rag-index DIR  RAG index directory (default: %s)\n"
         "\n"
-        "Runs a multi-turn conversation with semantic working memory.\n"
+        "Commands (during conversation):\n"
+        "  /memory      show working memory status\n"
+        "  /rag         toggle RAG on/off\n"
+        "  /rag status  show RAG configuration\n"
+        "\n"
+        "Runs a multi-turn conversation with three-layer memory.\n"
         "Type your message and press Enter. Ctrl-D or 'quit' to exit.\n",
-        argv0, MAX_RESPONSE);
+        argv0, MAX_RESPONSE, RAG_INDEX);
 }
 
-/* Build prompt with context from working memory using ChatML format.
+/* Build prompt with working memory + knowledge context in ChatML format.
+ *
  * LFM2 expects:
  *   <|im_start|>system\n...<|im_end|>\n
  *   <|im_start|>user\n...<|im_end|>\n
@@ -89,20 +242,25 @@ static void print_usage(const char *argv0) {
  * The model generates until <|im_end|> (token 7, EOG).
  */
 static int build_prompt(char *prompt, int prompt_max,
-                        const char *user_input, int use_memory) {
+                        const char *user_input,
+                        int use_memory,
+                        const char *knowledge_ctx) {
     int pos = 0;
 
-    /* System message with optional working memory context */
+    /* System message */
     pos += snprintf(prompt + pos, prompt_max - pos,
         "<|im_start|>system\n"
         "You are Moltar, a helpful AI assistant running on a Motorola phone. "
         "Be concise and direct.");
 
-    /* Retrieve context from LCVDB working memory */
+    /* Knowledge context from ColBERT RAG */
+    if (knowledge_ctx && knowledge_ctx[0]) {
+        pos += snprintf(prompt + pos, prompt_max - pos,
+            "\n\nKnowledge base:\n%s", knowledge_ctx);
+    }
+
+    /* Working memory context from LCVDB */
     if (use_memory && n_turns > 0) {
-        /* Search using the most recent turn's vector as a proxy for the
-         * current topic. This finds turns contextually related to the
-         * recent conversation flow. */
         if (n_turns >= 1) {
             uint16_t last_id = (uint16_t)(n_turns - 1);
 
@@ -112,7 +270,6 @@ static int build_prompt(char *prompt, int prompt_max,
                 (const int8_t *)((char *)vec_buf + last_id * sizeof(lcvdb_vec_t)),
                 MAX_CONTEXT + 1, result_ids, result_scores);
 
-            /* Collect retrieved turns (skip most-recent, it's added separately) */
             int context_count = 0;
             char context_buf[MAX_TURN_TEXT * MAX_CONTEXT];
             int ctx_pos = 0;
@@ -138,11 +295,9 @@ static int build_prompt(char *prompt, int prompt_max,
 
     /* Include most recent turn as a user/assistant exchange for continuity */
     if (use_memory && n_turns >= 1 && turns[n_turns - 1].valid) {
-        /* The stored turn text is "User: ...\nAssistant: ..." — split it */
         const char *turn_text = turns[n_turns - 1].text;
         const char *asst_part = strstr(turn_text, "\nAssistant: ");
         if (asst_part) {
-            /* User part: skip "User: " prefix */
             const char *user_part = turn_text;
             if (strncmp(user_part, "User: ", 6) == 0) user_part += 6;
             int user_len = (int)(asst_part - user_part);
@@ -179,6 +334,15 @@ int main(int argc, char **argv) {
     float top_p     = 0.9f;
     int use_memory  = 1;
 
+    /* RAG defaults */
+    rag_cfg.enabled = 0;
+    strncpy(rag_cfg.colbert_model, RAG_COLBERT, sizeof(rag_cfg.colbert_model));
+    strncpy(rag_cfg.embedding_bin, RAG_EMBEDDING, sizeof(rag_cfg.embedding_bin));
+    strncpy(rag_cfg.search_bin, RAG_SEARCH, sizeof(rag_cfg.search_bin));
+    strncpy(rag_cfg.index_dir, RAG_INDEX, sizeof(rag_cfg.index_dir));
+    rag_cfg.top_k = RAG_TOP_K;
+    rag_cfg.n_chunks = 0;
+
     /* Parse options */
     for (int i = 2; i < argc; i++) {
         if (strcmp(argv[i], "-t") == 0 && i + 1 < argc)
@@ -195,10 +359,29 @@ int main(int argc, char **argv) {
             top_p = (float)atof(argv[++i]);
         else if (strcmp(argv[i], "--no-memory") == 0)
             use_memory = 0;
+        else if (strcmp(argv[i], "--rag") == 0)
+            rag_cfg.enabled = 1;
+        else if (strcmp(argv[i], "--no-rag") == 0)
+            rag_cfg.enabled = 0;
+        else if (strcmp(argv[i], "--rag-index") == 0 && i + 1 < argc)
+            strncpy(rag_cfg.index_dir, argv[++i], sizeof(rag_cfg.index_dir));
         else {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
             print_usage(argv[0]);
             return 1;
+        }
+    }
+
+    /* ---------- Initialize RAG ---------- */
+    if (rag_cfg.enabled) {
+        rag_cfg.n_chunks = rag_load_manifest(&rag_cfg);
+        if (rag_cfg.n_chunks > 0) {
+            fprintf(stderr, "[moltar] RAG enabled: %d indexed chunks in %s\n",
+                    rag_cfg.n_chunks, rag_cfg.index_dir);
+        } else {
+            fprintf(stderr, "[moltar] WARN: RAG enabled but no index found at %s\n",
+                    rag_cfg.index_dir);
+            rag_cfg.enabled = 0;
         }
     }
 
@@ -268,13 +451,16 @@ int main(int argc, char **argv) {
 
     /* ---------- Token buffers ---------- */
     llama_token *prompt_tokens = (llama_token *)malloc(MAX_PROMPT_TOKENS * sizeof(llama_token));
-    char prompt_buf[MAX_INPUT * 4];  /* room for context + input */
+    char *prompt_buf = (char *)malloc(MAX_PROMPT_BUF);
     char input_buf[MAX_INPUT];
     char response_buf[MAX_TURN_TEXT];
+    char knowledge_buf[MAX_KNOWLEDGE];
 
     fprintf(stderr, "[moltar] Ready. Type your message (Ctrl-D or 'quit' to exit).\n");
-    fprintf(stderr, "[moltar] Memory: %s | Threads: %d | Context: %d | Temp: %.1f\n\n",
-            use_memory ? "ON" : "OFF", n_threads, n_ctx, temp);
+    fprintf(stderr, "[moltar] Memory: %s | RAG: %s | Threads: %d | Temp: %.1f\n\n",
+            use_memory ? "ON" : "OFF",
+            rag_cfg.enabled ? "ON" : "OFF",
+            n_threads, temp);
 
     /* ---------- Conversation loop ---------- */
     while (1) {
@@ -304,10 +490,33 @@ int main(int argc, char **argv) {
                 fprintf(stdout, " (memory disabled)\n");
             continue;
         }
+        if (strcmp(input_buf, "/rag") == 0) {
+            rag_cfg.enabled = !rag_cfg.enabled;
+            if (rag_cfg.enabled && rag_cfg.n_chunks == 0) {
+                rag_cfg.n_chunks = rag_load_manifest(&rag_cfg);
+            }
+            fprintf(stdout, "RAG: %s (%d chunks indexed)\n",
+                    rag_cfg.enabled ? "ON" : "OFF", rag_cfg.n_chunks);
+            continue;
+        }
+        if (strcmp(input_buf, "/rag status") == 0) {
+            fprintf(stdout, "RAG: %s\n", rag_cfg.enabled ? "ON" : "OFF");
+            fprintf(stdout, "  Index: %s (%d chunks)\n",
+                    rag_cfg.index_dir, rag_cfg.n_chunks);
+            fprintf(stdout, "  ColBERT: %s\n", rag_cfg.colbert_model);
+            fprintf(stdout, "  Top-K: %d\n", rag_cfg.top_k);
+            continue;
+        }
 
-        /* Build prompt with working memory context */
-        int prompt_len = build_prompt(prompt_buf, sizeof(prompt_buf),
-                                      input_buf, use_memory);
+        /* ---------- ColBERT knowledge retrieval ---------- */
+        knowledge_buf[0] = '\0';
+        if (rag_cfg.enabled) {
+            rag_retrieve(&rag_cfg, input_buf, knowledge_buf, MAX_KNOWLEDGE);
+        }
+
+        /* Build prompt with working memory + knowledge context */
+        int prompt_len = build_prompt(prompt_buf, MAX_PROMPT_BUF,
+                                      input_buf, use_memory, knowledge_buf);
 
         /* Tokenize */
         int n_tokens = -llama_tokenize(vocab, prompt_buf, prompt_len,
@@ -405,6 +614,7 @@ int main(int argc, char **argv) {
     fprintf(stderr, "\n[moltar] Session: %d turns\n", n_turns);
 
     free(prompt_tokens);
+    free(prompt_buf);
     llama_sampler_free(smpl);
     llama_free(ctx);
     llama_model_free(model);
