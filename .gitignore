@@ -15,6 +15,7 @@ research/lcvdb/gpu_probe
 research/lcvdb/gpu_bench
 research/lcvdb/test_bench_ref
 research/lcvdb/test_lcvdb_ref
+research/colbert/test_colbert
 
 # Test binary, built with `go test -c`
 *.test
@@ -112,7 +113,8 @@ moc_*.cpp
 moc_*.h
 qrc_*.cpp
 ui_*.h
-Makefile*
+# Qt Makefile (not our Makefiles)
+# Makefile*
 *build-*
 
 # Java
