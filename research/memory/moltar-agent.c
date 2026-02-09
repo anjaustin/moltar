@@ -319,6 +319,8 @@ static void print_usage(const char *argv0) {
         "  /rag status  show RAG configuration\n"
         "  /save        save session to file (requires --session)\n"
         "  /load        reload session from file (requires --session)\n"
+        "  /ingest FILE ingest a text file into the knowledge base\n"
+        "  /learn TEXT  learn a piece of text (added as a knowledge chunk)\n"
         "\n"
         "Runs a multi-turn conversation with three-layer memory.\n"
         "Type your message and press Enter. Ctrl-D or 'quit' to exit.\n",
@@ -639,6 +641,91 @@ int main(int argc, char **argv) {
             } else {
                 fprintf(stdout, "ERROR: failed to load session from %s\n", session_path);
             }
+            continue;
+        }
+        if (strncmp(input_buf, "/ingest ", 8) == 0) {
+            const char *file_path = input_buf + 8;
+            while (*file_path == ' ') file_path++;
+            if (*file_path == '\0') {
+                fprintf(stdout, "Usage: /ingest <file_path>\n");
+                continue;
+            }
+            fprintf(stdout, "Ingesting %s...\n", file_path);
+            fflush(stdout);
+
+            char cmd[2048];
+            snprintf(cmd, sizeof(cmd),
+                "taskset c0 %s ingest %s %s %s %s 2>&1",
+                rag_cfg.search_bin, file_path, rag_cfg.index_dir,
+                rag_cfg.embedding_bin, rag_cfg.colbert_model);
+            int ret = system(cmd);
+
+            if (ret == 0) {
+                /* Reload manifest to pick up new chunks */
+                rag_cfg.n_chunks = rag_load_manifest(&rag_cfg);
+                fprintf(stdout, "Ingestion complete. Index now has %d chunks.\n",
+                        rag_cfg.n_chunks);
+                if (!rag_cfg.enabled) {
+                    rag_cfg.enabled = 1;
+                    fprintf(stdout, "RAG auto-enabled.\n");
+                }
+            } else {
+                fprintf(stdout, "ERROR: ingestion failed (ret=%d)\n", ret);
+            }
+
+            /* Prefetch LLM model back since ColBERT evicted it */
+            snprintf(cmd, sizeof(cmd),
+                "cat %s > /dev/null 2>/dev/null &", model_path);
+            system(cmd);
+            continue;
+        }
+        if (strncmp(input_buf, "/learn ", 7) == 0) {
+            const char *text = input_buf + 7;
+            while (*text == ' ') text++;
+            if (*text == '\0') {
+                fprintf(stdout, "Usage: /learn <text to remember>\n");
+                continue;
+            }
+
+            /* Write text to a temp file, then ingest it */
+            const char *learn_path = RAG_BASE "/learn_tmp.txt";
+            FILE *lf = fopen(learn_path, "w");
+            if (!lf) {
+                fprintf(stdout, "ERROR: cannot write temp file\n");
+                continue;
+            }
+            fputs(text, lf);
+            fclose(lf);
+
+            fprintf(stdout, "Learning: %.60s%s\n", text,
+                    (int)strlen(text) > 60 ? "..." : "");
+            fflush(stdout);
+
+            char cmd[2048];
+            snprintf(cmd, sizeof(cmd),
+                "taskset c0 %s ingest %s %s %s %s 2>&1",
+                rag_cfg.search_bin, learn_path, rag_cfg.index_dir,
+                rag_cfg.embedding_bin, rag_cfg.colbert_model);
+            int ret = system(cmd);
+
+            remove(learn_path);
+
+            if (ret == 0) {
+                rag_cfg.n_chunks = rag_load_manifest(&rag_cfg);
+                fprintf(stdout, "Learned. Index now has %d chunks.\n",
+                        rag_cfg.n_chunks);
+                if (!rag_cfg.enabled) {
+                    rag_cfg.enabled = 1;
+                    fprintf(stdout, "RAG auto-enabled.\n");
+                }
+            } else {
+                fprintf(stdout, "ERROR: learning failed (ret=%d)\n", ret);
+            }
+
+            /* Prefetch LLM model back */
+            snprintf(cmd, sizeof(cmd),
+                "cat %s > /dev/null 2>/dev/null &", model_path);
+            system(cmd);
             continue;
         }
 

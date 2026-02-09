@@ -320,11 +320,244 @@ static int cmd_search(const char *query_emb_path, const char *index_dir,
     return 0;
 }
 
+/*
+ * Command: ingest
+ *
+ * moltar_rag ingest <text_file> <index_dir> <embedding_bin> <colbert_model>
+ *
+ * Reads a text file, splits into paragraph-delimited chunks (min 100 chars),
+ * embeds each chunk with llama-embedding, and writes to the index directory.
+ * Appends to existing index if manifest already exists.
+ *
+ * Output: one line per chunk:  chunk_id|n_tokens|n_chars
+ */
+#define INGEST_MAX_CHUNK_CHARS 1600  /* ~400 tokens at 4 chars/tok */
+#define INGEST_MIN_CHUNK_CHARS 80    /* don't embed tiny fragments */
+#define INGEST_MAX_CHUNKS      512
+#define INGEST_MAX_FILE_SIZE   (256 * 1024)  /* 256 KB max input file */
+
+static int cmd_ingest(const char *text_file, const char *index_dir,
+                      const char *embedding_bin, const char *colbert_model)
+{
+    /* Read the entire text file */
+    FILE *f = fopen(text_file, "r");
+    if (!f) {
+        fprintf(stderr, "moltar_rag: cannot open %s\n", text_file);
+        return 1;
+    }
+
+    char *file_buf = (char *)malloc(INGEST_MAX_FILE_SIZE);
+    if (!file_buf) {
+        fprintf(stderr, "moltar_rag: malloc failed\n");
+        fclose(f);
+        return 1;
+    }
+
+    int file_len = (int)fread(file_buf, 1, INGEST_MAX_FILE_SIZE - 1, f);
+    fclose(f);
+    file_buf[file_len] = '\0';
+
+    /* Read existing manifest to get starting chunk ID (append mode) */
+    int start_chunk_id = 0;
+    {
+        char manifest_path[512];
+        snprintf(manifest_path, sizeof(manifest_path), "%s/manifest.txt", index_dir);
+        FILE *mf = fopen(manifest_path, "r");
+        if (mf) {
+            if (fscanf(mf, "%d", &start_chunk_id) != 1) start_chunk_id = 0;
+            fclose(mf);
+        }
+    }
+
+    /*
+     * Split into chunks by paragraph (double newline).
+     *
+     * Strategy: accumulate lines until we hit a blank line and have
+     * enough text (>= INGEST_MIN_CHUNK_CHARS), then flush the chunk.
+     * If a single paragraph exceeds INGEST_MAX_CHUNK_CHARS, split it
+     * at the limit.
+     */
+    typedef struct {
+        char *text;
+        int   len;
+    } chunk_t;
+
+    chunk_t chunks[INGEST_MAX_CHUNKS];
+    int n_chunks = 0;
+
+    char *chunk_start = file_buf;
+    char *p = file_buf;
+
+    while (*p && n_chunks < INGEST_MAX_CHUNKS) {
+        /* Find next double-newline or end of file */
+        char *break_pos = NULL;
+        char *scan = p;
+        while (*scan) {
+            if (scan[0] == '\n' && scan[1] == '\n') {
+                break_pos = scan;
+                break;
+            }
+            scan++;
+        }
+
+        if (!break_pos) {
+            /* End of file — flush remaining text */
+            int remaining = file_len - (int)(p - file_buf);
+            if (remaining >= INGEST_MIN_CHUNK_CHARS) {
+                chunks[n_chunks].text = p;
+                chunks[n_chunks].len = remaining;
+                n_chunks++;
+            }
+            break;
+        }
+
+        /* We found a paragraph break */
+        int chunk_len = (int)(break_pos - chunk_start);
+
+        if (chunk_len >= INGEST_MIN_CHUNK_CHARS) {
+            /* Check if chunk is too long — split at max */
+            if (chunk_len > INGEST_MAX_CHUNK_CHARS) {
+                /* Split at last space before the limit */
+                int split_at = INGEST_MAX_CHUNK_CHARS;
+                while (split_at > INGEST_MIN_CHUNK_CHARS &&
+                       chunk_start[split_at] != ' ')
+                    split_at--;
+                if (split_at <= INGEST_MIN_CHUNK_CHARS)
+                    split_at = INGEST_MAX_CHUNK_CHARS;
+
+                chunks[n_chunks].text = chunk_start;
+                chunks[n_chunks].len = split_at;
+                n_chunks++;
+
+                /* Remainder becomes next chunk's start */
+                chunk_start = chunk_start + split_at;
+                while (*chunk_start == ' ' || *chunk_start == '\n')
+                    chunk_start++;
+                p = break_pos + 2;
+                continue;
+            }
+
+            chunks[n_chunks].text = chunk_start;
+            chunks[n_chunks].len = chunk_len;
+            n_chunks++;
+        }
+
+        /* Skip past the double newline */
+        p = break_pos + 2;
+        while (*p == '\n') p++;  /* skip extra blank lines */
+        chunk_start = p;
+    }
+
+    if (n_chunks == 0) {
+        fprintf(stderr, "moltar_rag: no chunks found in %s (file too short?)\n",
+                text_file);
+        free(file_buf);
+        return 1;
+    }
+
+    fprintf(stderr, "moltar_rag: split %s into %d chunks (starting at id %d)\n",
+            text_file, n_chunks, start_chunk_id);
+
+    /* Process each chunk: write text, embed, write embeddings */
+    int chunk_id = start_chunk_id;
+    int n_ingested = 0;
+
+    for (int i = 0; i < n_chunks; i++) {
+        char txt_path[512], emb_path[512], tmp_path[512];
+        snprintf(txt_path, sizeof(txt_path), "%s/chunk_%d.txt", index_dir, chunk_id);
+        snprintf(emb_path, sizeof(emb_path), "%s/chunk_%d.emb", index_dir, chunk_id);
+        snprintf(tmp_path, sizeof(tmp_path), "%s/_ingest_tmp.txt", index_dir);
+
+        /* Write chunk text */
+        FILE *tf = fopen(txt_path, "w");
+        if (!tf) {
+            fprintf(stderr, "moltar_rag: cannot write %s\n", txt_path);
+            chunk_id++;
+            continue;
+        }
+        fwrite(chunks[i].text, 1, chunks[i].len, tf);
+        fclose(tf);
+
+        /* Write chunk text to temp file for embedding (avoid shell injection) */
+        FILE *tmpf = fopen(tmp_path, "w");
+        if (!tmpf) {
+            fprintf(stderr, "moltar_rag: cannot write temp file\n");
+            chunk_id++;
+            continue;
+        }
+        fwrite(chunks[i].text, 1, chunks[i].len, tmpf);
+        fclose(tmpf);
+
+        /* Call llama-embedding to produce per-token 128D embeddings */
+        char cmd[2048];
+        snprintf(cmd, sizeof(cmd),
+            "export LD_LIBRARY_PATH=/data/local/tmp && "
+            "taskset c0 %s "
+            "-m %s -c 1024 -f %s "
+            "--pooling none --embd-normalize -1 --embd-output-format raw "
+            "-t 2 --no-warmup 2>/dev/null > %s",
+            embedding_bin, colbert_model, tmp_path, emb_path);
+
+        int ret = system(cmd);
+        if (ret != 0) {
+            fprintf(stderr, "moltar_rag: embedding failed for chunk %d (ret=%d)\n",
+                    chunk_id, ret);
+            chunk_id++;
+            continue;
+        }
+
+        /* Count token embeddings (one per line in .emb file) */
+        FILE *ef = fopen(emb_path, "r");
+        int n_tok = 0;
+        if (ef) {
+            char line[MAX_LINE_LEN];
+            while (fgets(line, sizeof(line), ef)) {
+                char c = line[0];
+                if (c == '-' || (c >= '0' && c <= '9')) n_tok++;
+            }
+            fclose(ef);
+        }
+
+        printf("%d|%d|%d\n", chunk_id, n_tok, chunks[i].len);
+        fprintf(stderr, "moltar_rag: chunk %d: %d chars, %d tokens\n",
+                chunk_id, chunks[i].len, n_tok);
+
+        n_ingested++;
+        chunk_id++;
+    }
+
+    /* Remove temp file */
+    {
+        char tmp_path[512];
+        snprintf(tmp_path, sizeof(tmp_path), "%s/_ingest_tmp.txt", index_dir);
+        remove(tmp_path);
+    }
+
+    /* Update manifest with new total count */
+    {
+        char manifest_path[512];
+        snprintf(manifest_path, sizeof(manifest_path), "%s/manifest.txt", index_dir);
+        FILE *mf = fopen(manifest_path, "w");
+        if (mf) {
+            fprintf(mf, "%d\n", chunk_id);
+            fclose(mf);
+        }
+    }
+
+    fprintf(stderr, "moltar_rag: ingested %d chunks, index now has %d total\n",
+            n_ingested, chunk_id);
+
+    free(file_buf);
+    return 0;
+}
+
 int main(int argc, char *argv[])
 {
     if (argc < 2) {
-        fprintf(stderr, "Usage: moltar_rag search <query.emb> <index_dir> "
-                "<n_chunks> <top_k>\n");
+        fprintf(stderr,
+            "Usage:\n"
+            "  moltar_rag search  <query.emb> <index_dir> <n_chunks> <top_k>\n"
+            "  moltar_rag ingest  <text_file> <index_dir> <embedding_bin> <colbert_model>\n");
         return 1;
     }
 
@@ -335,6 +568,15 @@ int main(int argc, char *argv[])
             return 1;
         }
         return cmd_search(argv[2], argv[3], atoi(argv[4]), atoi(argv[5]));
+    }
+
+    if (strcmp(argv[1], "ingest") == 0) {
+        if (argc < 6) {
+            fprintf(stderr, "Usage: moltar_rag ingest <text_file> <index_dir> "
+                    "<embedding_bin> <colbert_model>\n");
+            return 1;
+        }
+        return cmd_ingest(argv[2], argv[3], argv[4], argv[5]);
     }
 
     fprintf(stderr, "Unknown command: %s\n", argv[1]);
