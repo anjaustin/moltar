@@ -151,15 +151,19 @@ lcvdb_insert:
     ubfiz   x11, x20, #6, #8
     add     x11, x23, x11
 
-    // Score current node
+    // Score current node (widen per-chunk to avoid int16 overflow)
     ld1     {v3.16b, v4.16b, v5.16b}, [x11]
     smull   v6.8h, v0.8b, v3.8b
     smull2  v7.8h, v0.16b, v3.16b
-    smlal   v6.8h, v1.8b, v4.8b
-    smlal2  v7.8h, v1.16b, v4.16b
-    smlal   v6.8h, v2.8b, v5.8b
-    smlal2  v7.8h, v2.16b, v5.16b
     saddlp  v8.4s, v6.8h
+    sadalp  v8.4s, v7.8h
+    smull   v6.8h, v1.8b, v4.8b
+    smull2  v7.8h, v1.16b, v4.16b
+    sadalp  v8.4s, v6.8h
+    sadalp  v8.4s, v7.8h
+    smull   v6.8h, v2.8b, v5.8b
+    smull2  v7.8h, v2.16b, v5.16b
+    sadalp  v8.4s, v6.8h
     sadalp  v8.4s, v7.8h
     addv    s9, v8.4s
     fmov    w12, s9                // best_score
@@ -181,11 +185,15 @@ lcvdb_insert:
     ld1     {v3.16b, v4.16b, v5.16b}, [x11]
     smull   v6.8h, v0.8b, v3.8b
     smull2  v7.8h, v0.16b, v3.16b
-    smlal   v6.8h, v1.8b, v4.8b
-    smlal2  v7.8h, v1.16b, v4.16b
-    smlal   v6.8h, v2.8b, v5.8b
-    smlal2  v7.8h, v2.16b, v5.16b
     saddlp  v8.4s, v6.8h
+    sadalp  v8.4s, v7.8h
+    smull   v6.8h, v1.8b, v4.8b
+    smull2  v7.8h, v1.16b, v4.16b
+    sadalp  v8.4s, v6.8h
+    sadalp  v8.4s, v7.8h
+    smull   v6.8h, v2.8b, v5.8b
+    smull2  v7.8h, v2.16b, v5.16b
+    sadalp  v8.4s, v6.8h
     sadalp  v8.4s, v7.8h
     addv    s9, v8.4s
     fmov    w18, s9
@@ -240,11 +248,15 @@ lcvdb_insert:
     ld1     {v3.16b, v4.16b, v5.16b}, [x11]
     smull   v6.8h, v0.8b, v3.8b
     smull2  v7.8h, v0.16b, v3.16b
-    smlal   v6.8h, v1.8b, v4.8b
-    smlal2  v7.8h, v1.16b, v4.16b
-    smlal   v6.8h, v2.8b, v5.8b
-    smlal2  v7.8h, v2.16b, v5.16b
     saddlp  v8.4s, v6.8h
+    sadalp  v8.4s, v7.8h
+    smull   v6.8h, v1.8b, v4.8b
+    smull2  v7.8h, v1.16b, v4.16b
+    sadalp  v8.4s, v6.8h
+    sadalp  v8.4s, v7.8h
+    smull   v6.8h, v2.8b, v5.8b
+    smull2  v7.8h, v2.16b, v5.16b
+    sadalp  v8.4s, v6.8h
     sadalp  v8.4s, v7.8h
     addv    s9, v8.4s
     fmov    w18, s9                // w18 = dot(query, node[w7])
@@ -394,16 +406,20 @@ lcvdb_insert:
     ubfiz   x6, x17, #6, #8
     add     x6, x23, x6           // &nodes[S]
 
-    // Load S vector and C vector, compute dot
+    // Load S vector and C vector, compute dot (overflow-safe)
     ld1     {v3.16b, v4.16b, v5.16b}, [x6]    // S vector
     ld1     {v13.16b, v14.16b, v15.16b}, [x11] // C vector
     smull   v6.8h, v3.8b, v13.8b
     smull2  v7.8h, v3.16b, v13.16b
-    smlal   v6.8h, v4.8b, v14.8b
-    smlal2  v7.8h, v4.16b, v14.16b
-    smlal   v6.8h, v5.8b, v15.8b
-    smlal2  v7.8h, v5.16b, v15.16b
     saddlp  v8.4s, v6.8h
+    sadalp  v8.4s, v7.8h
+    smull   v6.8h, v4.8b, v14.8b
+    smull2  v7.8h, v4.16b, v14.16b
+    sadalp  v8.4s, v6.8h
+    sadalp  v8.4s, v7.8h
+    smull   v6.8h, v5.8b, v15.8b
+    smull2  v7.8h, v5.16b, v15.16b
+    sadalp  v8.4s, v6.8h
     sadalp  v8.4s, v7.8h
     addv    s9, v8.4s
     fmov    w18, s9                // w18 = dot(S, C)
@@ -486,11 +502,15 @@ lcvdb_insert:
     ld1     {v3.16b, v4.16b, v5.16b}, [x11]   // neighbor vector
     smull   v6.8h, v0.8b, v3.8b
     smull2  v7.8h, v0.16b, v3.16b
-    smlal   v6.8h, v1.8b, v4.8b
-    smlal2  v7.8h, v1.16b, v4.16b
-    smlal   v6.8h, v2.8b, v5.8b
-    smlal2  v7.8h, v2.16b, v5.16b
     saddlp  v8.4s, v6.8h
+    sadalp  v8.4s, v7.8h
+    smull   v6.8h, v1.8b, v4.8b
+    smull2  v7.8h, v1.16b, v4.16b
+    sadalp  v8.4s, v6.8h
+    sadalp  v8.4s, v7.8h
+    smull   v6.8h, v2.8b, v5.8b
+    smull2  v7.8h, v2.16b, v5.16b
+    sadalp  v8.4s, v6.8h
     sadalp  v8.4s, v7.8h
     addv    s9, v8.4s
     fmov    w13, s9                // w13 = dot(neighbor, new_node)
@@ -512,11 +532,15 @@ lcvdb_insert:
     ld1     {v13.16b, v14.16b, v15.16b}, [x6]
     smull   v6.8h, v3.8b, v13.8b
     smull2  v7.8h, v3.16b, v13.16b
-    smlal   v6.8h, v4.8b, v14.8b
-    smlal2  v7.8h, v4.16b, v14.16b
-    smlal   v6.8h, v5.8b, v15.8b
-    smlal2  v7.8h, v5.16b, v15.16b
     saddlp  v8.4s, v6.8h
+    sadalp  v8.4s, v7.8h
+    smull   v6.8h, v4.8b, v14.8b
+    smull2  v7.8h, v4.16b, v14.16b
+    sadalp  v8.4s, v6.8h
+    sadalp  v8.4s, v7.8h
+    smull   v6.8h, v5.8b, v15.8b
+    smull2  v7.8h, v5.16b, v15.16b
+    sadalp  v8.4s, v6.8h
     sadalp  v8.4s, v7.8h
     addv    s9, v8.4s
     fmov    w6, s9

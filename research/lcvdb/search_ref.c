@@ -1,17 +1,12 @@
-/* Reference C implementation of HNSW search
- * Uses separate candidate and result lists to avoid cursor/sort bug.
+/* HNSW search — C control flow, NEON dot products via distance.S
+ * Uses separate candidate and result lists (standard two-list approach).
  */
-#include <stdio.h>
 #include <string.h>
 #include <stdint.h>
 #include "lcvdb.h"
 
-static int32_t dot_i8_ref(const int8_t *a, const int8_t *b) {
-    int32_t sum = 0;
-    for (int i = 0; i < LCVDB_VEC_DIM; i++)
-        sum += (int32_t)a[i] * (int32_t)b[i];
-    return sum;
-}
+/* Use NEON dot product from distance.S instead of scalar C loop */
+#define dot_i8_ref lcvdb_dot_i8
 
 void lcvdb_search(const lcvdb_t *db, const int8_t *query,
                   uint8_t k, uint8_t *result_ids, int32_t *result_scores) {

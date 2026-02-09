@@ -41,23 +41,26 @@ lcvdb_dot_i8:
     // Load vector B: 48 bytes = 3 x 16-byte loads
     ld1     {v3.16b, v4.16b, v5.16b}, [x1]
 
-    // Multiply-accumulate chunk 0 (dims 0-15)
-    // SMULL: signed multiply long, int8 x int8 -> int16
-    smull   v6.8h, v0.8b, v3.8b        // dims 0-7: low halves
-    smull2  v7.8h, v0.16b, v3.16b      // dims 8-15: high halves
-
-    // Multiply-accumulate chunk 1 (dims 16-31)
-    smlal   v6.8h, v1.8b, v4.8b        // accumulate dims 16-23
-    smlal2  v7.8h, v1.16b, v4.16b      // accumulate dims 24-31
-
-    // Multiply-accumulate chunk 2 (dims 32-47)
-    smlal   v6.8h, v2.8b, v5.8b        // accumulate dims 32-39
-    smlal2  v7.8h, v2.16b, v5.16b      // accumulate dims 40-47
-
-    // Now v6 and v7 each have 8 x int16 partial sums
-    // Pairwise add to int32
+    // Chunk 0 (dims 0-15): int8 x int8 -> int16
+    smull   v6.8h, v0.8b, v3.8b        // dims 0-7
+    smull2  v7.8h, v0.16b, v3.16b      // dims 8-15
+    // Widen chunk 0 to int32 immediately (avoid int16 overflow)
     saddlp  v8.4s, v6.8h               // 8 x int16 -> 4 x int32
-    sadalp  v8.4s, v7.8h               // accumulate other 8 x int16
+    sadalp  v8.4s, v7.8h               // accumulate
+
+    // Chunk 1 (dims 16-31): int8 x int8 -> int16
+    smull   v6.8h, v1.8b, v4.8b        // dims 16-23
+    smull2  v7.8h, v1.16b, v4.16b      // dims 24-31
+    // Widen and accumulate into int32
+    sadalp  v8.4s, v6.8h
+    sadalp  v8.4s, v7.8h
+
+    // Chunk 2 (dims 32-47): int8 x int8 -> int16
+    smull   v6.8h, v2.8b, v5.8b        // dims 32-39
+    smull2  v7.8h, v2.16b, v5.16b      // dims 40-47
+    // Widen and accumulate into int32
+    sadalp  v8.4s, v6.8h
+    sadalp  v8.4s, v7.8h
 
     // Horizontal reduction: 4 x int32 -> 1 x int32
     addv    s9, v8.4s                   // sum all 4 lanes
@@ -88,17 +91,25 @@ lcvdb_dot_i8_preloaded:
     // Load candidate vector
     ld1     {v3.16b, v4.16b, v5.16b}, [x0]
 
-    // Multiply all three chunks
+    // Chunk 0: widen immediately to avoid int16 overflow
     smull   v6.8h, v0.8b, v3.8b
     smull2  v7.8h, v0.16b, v3.16b
-    smlal   v6.8h, v1.8b, v4.8b
-    smlal2  v7.8h, v1.16b, v4.16b
-    smlal   v6.8h, v2.8b, v5.8b
-    smlal2  v7.8h, v2.16b, v5.16b
-
-    // Reduce
     saddlp  v8.4s, v6.8h
     sadalp  v8.4s, v7.8h
+
+    // Chunk 1
+    smull   v6.8h, v1.8b, v4.8b
+    smull2  v7.8h, v1.16b, v4.16b
+    sadalp  v8.4s, v6.8h
+    sadalp  v8.4s, v7.8h
+
+    // Chunk 2
+    smull   v6.8h, v2.8b, v5.8b
+    smull2  v7.8h, v2.16b, v5.16b
+    sadalp  v8.4s, v6.8h
+    sadalp  v8.4s, v7.8h
+
+    // Reduce
     addv    s9, v8.4s
     fmov    w0, s9
 
@@ -148,15 +159,19 @@ lcvdb_dot_i8_batch4:
     // Save frame
     stp     x29, x30, [sp, #-16]!
 
-    // Candidate 0
+    // Candidate 0 — widen per-chunk to avoid int16 overflow
     ld1     {v3.16b, v4.16b, v5.16b}, [x0]
     smull   v6.8h, v0.8b, v3.8b
     smull2  v7.8h, v0.16b, v3.16b
-    smlal   v6.8h, v1.8b, v4.8b
-    smlal2  v7.8h, v1.16b, v4.16b
-    smlal   v6.8h, v2.8b, v5.8b
-    smlal2  v7.8h, v2.16b, v5.16b
     saddlp  v8.4s, v6.8h
+    sadalp  v8.4s, v7.8h
+    smull   v6.8h, v1.8b, v4.8b
+    smull2  v7.8h, v1.16b, v4.16b
+    sadalp  v8.4s, v6.8h
+    sadalp  v8.4s, v7.8h
+    smull   v6.8h, v2.8b, v5.8b
+    smull2  v7.8h, v2.16b, v5.16b
+    sadalp  v8.4s, v6.8h
     sadalp  v8.4s, v7.8h
     addv    s16, v8.4s              // result 0 in s16
 
@@ -164,11 +179,15 @@ lcvdb_dot_i8_batch4:
     ld1     {v3.16b, v4.16b, v5.16b}, [x1]
     smull   v6.8h, v0.8b, v3.8b
     smull2  v7.8h, v0.16b, v3.16b
-    smlal   v6.8h, v1.8b, v4.8b
-    smlal2  v7.8h, v1.16b, v4.16b
-    smlal   v6.8h, v2.8b, v5.8b
-    smlal2  v7.8h, v2.16b, v5.16b
     saddlp  v8.4s, v6.8h
+    sadalp  v8.4s, v7.8h
+    smull   v6.8h, v1.8b, v4.8b
+    smull2  v7.8h, v1.16b, v4.16b
+    sadalp  v8.4s, v6.8h
+    sadalp  v8.4s, v7.8h
+    smull   v6.8h, v2.8b, v5.8b
+    smull2  v7.8h, v2.16b, v5.16b
+    sadalp  v8.4s, v6.8h
     sadalp  v8.4s, v7.8h
     addv    s17, v8.4s              // result 1 in s17
 
@@ -176,11 +195,15 @@ lcvdb_dot_i8_batch4:
     ld1     {v3.16b, v4.16b, v5.16b}, [x2]
     smull   v6.8h, v0.8b, v3.8b
     smull2  v7.8h, v0.16b, v3.16b
-    smlal   v6.8h, v1.8b, v4.8b
-    smlal2  v7.8h, v1.16b, v4.16b
-    smlal   v6.8h, v2.8b, v5.8b
-    smlal2  v7.8h, v2.16b, v5.16b
     saddlp  v8.4s, v6.8h
+    sadalp  v8.4s, v7.8h
+    smull   v6.8h, v1.8b, v4.8b
+    smull2  v7.8h, v1.16b, v4.16b
+    sadalp  v8.4s, v6.8h
+    sadalp  v8.4s, v7.8h
+    smull   v6.8h, v2.8b, v5.8b
+    smull2  v7.8h, v2.16b, v5.16b
+    sadalp  v8.4s, v6.8h
     sadalp  v8.4s, v7.8h
     addv    s18, v8.4s              // result 2 in s18
 
@@ -188,11 +211,15 @@ lcvdb_dot_i8_batch4:
     ld1     {v3.16b, v4.16b, v5.16b}, [x3]
     smull   v6.8h, v0.8b, v3.8b
     smull2  v7.8h, v0.16b, v3.16b
-    smlal   v6.8h, v1.8b, v4.8b
-    smlal2  v7.8h, v1.16b, v4.16b
-    smlal   v6.8h, v2.8b, v5.8b
-    smlal2  v7.8h, v2.16b, v5.16b
     saddlp  v8.4s, v6.8h
+    sadalp  v8.4s, v7.8h
+    smull   v6.8h, v1.8b, v4.8b
+    smull2  v7.8h, v1.16b, v4.16b
+    sadalp  v8.4s, v6.8h
+    sadalp  v8.4s, v7.8h
+    smull   v6.8h, v2.8b, v5.8b
+    smull2  v7.8h, v2.16b, v5.16b
+    sadalp  v8.4s, v6.8h
     sadalp  v8.4s, v7.8h
     addv    s19, v8.4s              // result 3 in s19
 
