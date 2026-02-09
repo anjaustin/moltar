@@ -122,19 +122,31 @@ static int rag_retrieve(const rag_config_t *cfg, const char *query,
     char cmd[2048];
     char emb_path[256];
     char results_path[256];
+    char query_path[256];
 
     snprintf(emb_path, sizeof(emb_path), "%s/rag_query_agent.emb", RAG_BASE);
     snprintf(results_path, sizeof(results_path), "%s/rag_results_agent.txt", RAG_BASE);
+    snprintf(query_path, sizeof(query_path), "%s/rag_query_agent.txt", RAG_BASE);
 
-    /* Step 1: Embed query with ColBERT model */
+    /* Write query to temp file to avoid shell injection.
+     * No user input ever touches the shell command string. */
+    FILE *qf = fopen(query_path, "w");
+    if (!qf) {
+        fprintf(stderr, "[rag] WARN: could not write query file %s\n", query_path);
+        return 0;
+    }
+    fputs(query, qf);
+    fclose(qf);
+
+    /* Step 1: Embed query with ColBERT model (read from file, not -p) */
     fprintf(stderr, "[rag] Embedding query...\n");
     snprintf(cmd, sizeof(cmd),
         "export LD_LIBRARY_PATH=%s && "
         "taskset c0 %s "
-        "-m %s -c 1024 -p \"%s\" "
+        "-m %s -c 1024 -f %s "
         "--pooling none --embd-normalize -1 --embd-output-format raw "
         "-t 2 --no-warmup 2>/dev/null > %s",
-        RAG_BASE, cfg->embedding_bin, cfg->colbert_model, query, emb_path);
+        RAG_BASE, cfg->embedding_bin, cfg->colbert_model, query_path, emb_path);
 
     int ret = system(cmd);
     if (ret != 0) {
