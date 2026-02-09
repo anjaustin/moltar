@@ -31,11 +31,13 @@ LLAMA_LIBS = -L$(LLAMA_LIB_DIR) -lllama -lggml -lggml-base -lggml-cpu
 # Memory layer sources
 MEM_SRCS = project.c
 
-.PHONY: all agent clean test
+.PHONY: all agent server clean test
 
 all: test_project
 
 agent: moltar-agent
+
+server: moltar-server
 
 # Static test binary (cross-compiled with GNU toolchain)
 test_project: test_project.c $(MEM_SRCS) $(LCVDB_SRCS)
@@ -47,8 +49,14 @@ moltar-agent: moltar-agent.c $(MEM_SRCS) $(LCVDB_SRCS)
 		$(LLAMA_LIBS) -lm -llog -landroid \
 		-Wl,-rpath,/data/local/tmp -Wl,-rpath,.
 
+# Dynamic server binary (NDK, links against libllama.so on device)
+moltar-server: moltar-server.c $(MEM_SRCS) $(LCVDB_SRCS)
+	$(NDK_CC) $(NDK_CFLAGS) $(LCVDB_INC) $(LLAMA_INC) -o $@ $^ \
+		$(LLAMA_LIBS) -lm -llog -landroid \
+		-Wl,-rpath,/data/local/tmp -Wl,-rpath,.
+
 test: test_project
 	./test_project
 
 clean:
-	rm -f test_project moltar-agent *.o
+	rm -f test_project moltar-agent moltar-server *.o
