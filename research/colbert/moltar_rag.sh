@@ -49,7 +49,6 @@ get_embeddings() {
         --embd-output-format raw \
         -t $COLBERT_THREADS \
         --no-warmup \
-        --no-repack \
         2>/dev/null
 }
 
@@ -179,7 +178,6 @@ cmd_query() {
         -n $LLM_TOKENS \
         -t $LLM_THREADS \
         --no-warmup \
-        --no-repack \
         --no-display-prompt \
         --single-turn \
         --simple-io \
