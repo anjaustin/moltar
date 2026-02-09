@@ -160,13 +160,31 @@ Confirmed: documented recall numbers were stale (pre-beam-search-fix). Fresh res
 - Search ~10-20% slower due to better-connected graph (43K QPS at N=256, was 51K)
 - All doc memory numbers corrected to 64B/node topo
 
+### ~~P1 — RAG: Integration into moltar-agent~~ DONE
+
+**Status**: ColBERT RAG fully integrated into `moltar-agent` and verified on device. The agent now has `--rag` / `--no-rag` flags and `/rag` toggle during conversation. RAG shells out to `llama-embedding` (ColBERT) and `moltar_rag` (MaxSim search) via `system()` calls, because the ColBERT model (209 MB) and LFM2-1.2B (661 MB) can't coexist in RAM.
+
+**End-to-end latency** (RAG-enabled query, measured on device):
+
+| Step | Time |
+|------|------|
+| ColBERT embedding (cold, model load + embed) | ~0.9 s |
+| MaxSim search (10 chunks) | ~15 ms |
+| LFM2-1.2B reload (mmap fault-in after swap) | ~4-5 s |
+| Prompt processing (~220 tokens) | ~2.4 s |
+| Generation (~60 tokens) | ~2.9 s |
+| **Total end-to-end** | **~10.5 s** |
+
+**Verified**: RAG-grounded factual responses (e.g. "128-dimensional per-token embedding model released by Liquid AI" from chunk about LFM2-ColBERT). Working memory + RAG coexistence confirmed.
+
+**Known limitation**: ColBERT retrieval quality on the small 10-chunk corpus is uneven. Chunks with many generic terms ("Moltar project", "Android") score high across diverse queries, edging out more relevant chunks. Works well for queries with distinctive terms. Improves with larger, more diverse corpora.
+
 ### P1 — RAG: Knowledge Base Expansion + Quality
 
-**Status**: ColBERT RAG pipeline works end-to-end. Current knowledge base is a single file (`knowledge/moltar.txt`, 10 chunks).
-
-**Work**:
+**Work remaining**:
 - Expand knowledge base with more documents/domains
-- Evaluate retrieval quality with diverse queries
+- IDF-weighted MaxSim or LLM re-ranking to improve retrieval quality
+- Query sanitization (shell metacharacters in `system()` calls)
 - Tune chunk size and overlap for better context
 - Benchmark MaxSim scaling at 100+ chunks
 
@@ -216,6 +234,7 @@ Moltar currently targets exactly one phone. Future devices:
 
 - **P0 — Memory Architecture: Three-Layer System** — DONE. `moltar-agent` integrates LFM2-1.2B + LCVDB working memory via random projection of hidden states. Multi-turn conversation with name/topic recall verified on device.
 - **P0 — LCVDB Re-Benchmark + Quick Fixes** — DONE. 100% recall through N=512, NEON build fix.
+- **P1 — RAG: Integration into moltar-agent** — DONE. ColBERT knowledge retrieval integrated via subprocess calls. RAG-grounded factual responses verified on device. ~10.5s end-to-end with model swap overhead.
 - **P2 — Integration: LLM + RAG Pipeline** — DONE. Implemented using ColBERT late-interaction retrieval. See ColBERT RAG section above.
 
 ### Lincoln Manifold Analysis
@@ -284,6 +303,9 @@ adb shell "su -c 'stop'"  # kill Android framework, free ~4 GB/s DRAM BW
 
 # Run moltar-agent (multi-turn conversation with working memory)
 adb shell "su -c 'export LD_LIBRARY_PATH=/data/local/tmp && taskset c0 /data/local/tmp/moltar-agent /data/local/tmp/LFM2-1.2B-Q4_0.gguf -t 2 -c 2048'"
+
+# Run moltar-agent with ColBERT RAG knowledge retrieval
+adb shell "su -c 'export LD_LIBRARY_PATH=/data/local/tmp && taskset c0 /data/local/tmp/moltar-agent /data/local/tmp/LFM2-1.2B-Q4_0.gguf -t 2 -c 2048 --rag'"
 
 # Run RAG demo
 adb shell "su -c 'sh /data/local/tmp/moltar_rag.sh demo'"

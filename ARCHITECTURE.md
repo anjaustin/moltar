@@ -239,19 +239,23 @@ Located in `research/memory/`. Bridges LFM2 inference with LCVDB working memory 
 ```
 User input
     │
-    ▼
-┌─────────────────────┐
-│  LCVDB Search       │  Search for top-3 related prior turns
-│  (23 us)            │  using most recent turn's vector as query
-└──────────┬──────────┘
-           │ context text
-           ▼
-┌─────────────────────┐
-│  ChatML Prompt      │  System + retrieved context + recent turn + user input
-│  Construction       │  <|im_start|>system ... <|im_end|>
-└──────────┬──────────┘
-           │
-           ▼
+    ├──────────────────────────────┐
+    │                              │ (if --rag enabled)
+    ▼                              ▼
+┌─────────────────────┐   ┌─────────────────────┐
+│  LCVDB Search       │   │  ColBERT RAG        │  Shell out to llama-embedding
+│  (23 us)            │   │  (~0.9 s cold)      │  + moltar_rag search
+└──────────┬──────────┘   └──────────┬──────────┘
+           │ context text            │ knowledge text
+           ▼                         ▼
+┌──────────────────────────────────────────────┐
+│  ChatML Prompt Construction                   │
+│  System + knowledge base + working memory     │
+│  + recent turn + user input                   │
+│  <|im_start|>system ... <|im_end|>            │
+└──────────────────┬───────────────────────────┘
+                   │
+                   ▼
 ┌─────────────────────┐
 │  LFM2-1.2B Decode   │  embeddings=true → logits + hidden state
 │  (21 tok/s)         │  llama_get_embeddings_ith(-1) → 2048D float
@@ -270,6 +274,27 @@ User input
 └─────────────────────┘
 ```
 
+### ColBERT RAG Subprocess Architecture
+
+The ColBERT model (209 MB) and LFM2-1.2B (661 MB) cannot coexist in RAM. `moltar-agent` shells out via `system()` to run embedding and search as subprocesses:
+
+1. **`llama-embedding`** loads ColBERT model via mmap, embeds query, writes `.emb` file, exits
+2. **`moltar_rag search`** reads query `.emb` + chunk `.emb` files, runs MaxSim, writes ranked results
+3. **`moltar-agent`** reads chunk `.txt` files for top-K results, injects as knowledge context
+
+The OS handles memory pressure: when ColBERT loads, LFM2-1.2B pages get evicted from page cache. When generation starts, LFM2 pages fault back in (~4-5s reload). Total RAG overhead: ~5s per query (dominated by model swap).
+
+**End-to-end latency** (measured on device):
+
+| Step | Time |
+|------|------|
+| ColBERT embedding (cold) | ~0.9 s |
+| MaxSim search (10 chunks) | ~15 ms |
+| LFM2-1.2B reload (mmap fault-in) | ~4-5 s |
+| Prompt processing (~220 tokens) | ~2.4 s |
+| Generation (~60 tokens) | ~2.9 s |
+| **Total** | **~10.5 s** |
+
 ### Random Projection (`project.h`, `project.c`)
 
 Johnson-Lindenstrauss projection from LFM2 hidden states to LCVDB vectors.
@@ -282,12 +307,14 @@ Johnson-Lindenstrauss projection from LFM2 hidden states to LCVDB vectors.
 
 ### `moltar-agent` (`moltar-agent.c`)
 
-The main integration binary. 24 KB, dynamically linked against `libllama.so`, LCVDB compiled in statically.
+The main integration binary. ~29 KB, dynamically linked against `libllama.so`, LCVDB compiled in statically.
 
 - **Loads LFM2-1.2B** with `embeddings=true` via `llama_model_load_from_file` + `llama_init_from_model`
 - **Sampling**: configurable temperature, top-k, top-p (default: greedy)
 - **ChatML format**: `<|im_start|>system/user/assistant<|im_end|>` — matches LFM2 tokenizer chat template
-- **Context injection**: system message includes retrieved prior turns
+- **Working memory**: LCVDB search injects top-3 related prior turns into system message
+- **Knowledge retrieval**: optional ColBERT RAG via subprocess (`--rag` flag, `/rag` toggle)
+- **Prompt structure**: system message + knowledge base (RAG) + relevant prior conversation (LCVDB) + recent turn + current user input
 - **Hidden state extraction**: `llama_get_embeddings_ith(ctx, -1)` after final token decode
 - **Memory storage**: projects hidden state → inserts into LCVDB → stores turn text for retrieval
 
