@@ -277,10 +277,15 @@ system(cmd);
 
 **Current bottleneck**: DRAM bandwidth. At 15.5 GB/s sustained, a 661 MiB model reads at ~21 tok/s. The only way to go faster is to reduce bytes read per token.
 
-**Options**:
-- **Speculative decoding**: Use LFM2-350M as draft model, LFM2-1.2B as verifier. If acceptance rate is high, effective throughput could increase 2-3x.
-- **Q3_0 or Q2_0 quantization**: Lower bits per weight, but quality drops. Need to measure LFM2 quality at Q3.
-- **KV cache quantization**: Reduce KV cache memory to keep more in cache.
+**Ruled out** (see Dead Ends):
+- Speculative decoding — LFM2's recurrent state can't roll back
+- Q3_K_M — 40% slower without custom repack kernel (12.9 vs 21.3 tok/s)
+- Prompt state caching — mmap page eviction is the bottleneck, not KV state
+
+**Remaining options**:
+- **KV cache quantization** (Q8_0/Q4_0) — reduces attention KV memory but doesn't affect weight bandwidth. SSM state is hardcoded F32. Minor impact.
+- **Write a Q4_K repack kernel** — Q4_K has repack support in upstream llama.cpp but not in our custom RS path. Could enable Q4_K_M mixed quantization (4.58 bpw, some layers at Q5_K) with our optimized GEMV. Would need new block struct + NEON kernel.
+- **LFM2-700M as production model** — 33 tok/s at Q4_0, 56% faster than 1.2B. Quality trade-off vs speed.
 
 ### P2 — LCVDB: Recall Fix at N=1024+ (if needed)
 
@@ -343,6 +348,9 @@ These were investigated and conclusively ruled out:
 - **Activation quant caching** — cache keyed on `src1->data` pointer; allocator reuses buffer addresses for different tensors, causing stale quantized activations and gibberish output. Removed entirely (2-4% throughput cost; old numbers were inflated by the bug)
 - **CV-based IDF weighting for ColBERT** — coefficient of variation is too low after int8 quantization (all weights clamp to ~0.10). Fixed by switching to variance-weighted mean-centering approach
 - **Uniform [-64,63] random projection weights** — variance too high, JL fails. All pairwise cosine sims cluster at ~0 +/- 0.022. Fixed with Rademacher {-1,+1}
+- **Speculative decoding with LFM2** — LFM2 is a hybrid SSM/attention architecture. Recurrent (SSM) state is a running accumulator that cannot be partially rolled back. `llama_memory_recurrent::seq_rm()` explicitly rejects partial removal at the tail of a sequence. The `common_speculative_is_compat()` check returns false for LFM2 as a target model, blocking all speculation types (draft model, n-gram lookup, everything). Fundamental architectural limitation, not patchable.
+- **Q3_K_M quantization** — 570 MiB (14% smaller than Q4_0's 661 MiB), but no custom repack kernel exists for Q3_K. Falls back to stock llama.cpp matmul: **12.9 tok/s vs 21.3 tok/s on Q4_0** — a 40% slowdown. Bandwidth savings completely negated by inefficient 3-bit unpacking. Writing a Q3_K repack kernel is possible but the complex bit packing (3-bit values + 6-bit scales in 110-byte blocks) makes it substantially harder than Q4_0's simple nibble extraction.
+- **Prompt state caching for RAG model swap** — the ~4-5s RAG model swap penalty is from mmap page eviction (ColBERT's 209MB model evicts LFM2-1.2B weight pages from the page cache), not from KV cache state. `llama_state_save/load_file` saves KV + SSM state but doesn't help because we clear KV cache every turn anyway, and weight data is in mmap, not the context state.
 
 ---
 
