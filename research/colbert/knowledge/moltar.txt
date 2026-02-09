@@ -1,0 +1,19 @@
+Moltar is an embedded AI platform for running LLM inference on mobile phones. It targets the Motorola Moto G Power 5G 2023, which has a MediaTek Dimensity 930 SoC with two Cortex-A78 big cores at 2.2GHz and six Cortex-A55 little cores. The device has 6GB of LPDDR4X RAM at 4266MHz, providing approximately 15.5 GB/s of DRAM bandwidth when Android framework services are stopped.
+
+The Moltar project achieves 80 tokens per second on the LFM2-350M model at Q4_0 quantization. For the larger LFM2-1.2B model, it achieves approximately 21 tokens per second. These speeds are achieved by pinning inference threads to the two big Cortex-A78 cores using taskset and stopping Android framework services to free DRAM bandwidth.
+
+A critical discovery in the Moltar project was that Android framework services like SurfaceFlinger and SystemUI consume approximately 4 GB/s of DRAM bandwidth. By running the command stop as root, these services are killed, freeing bandwidth for LLM inference. This was initially misdiagnosed as DRAM thermal throttling before the true cause was identified.
+
+The Moltar project uses a custom fork of llama.cpp with several optimizations specific to the Dimensity 930. These include row-scaled Q4_0 and Q8_0 quantization formats aligned to 64-byte cache lines, pure-integer SDOT GEMV kernels that use the ARMv8.2-a dot product extension, and GEMM dispatch for prompt processing that reuses weights across 4 activation rows.
+
+The Liquid Foundation Models (LFM2) are a family of models developed by Liquid AI. They use a hybrid architecture combining short-range gated convolutions with grouped-query attention. Available sizes include 350M, 700M, 1.2B, and 2.6B parameters. The LFM2 architecture is efficient for on-device inference due to its sub-quadratic attention mechanism.
+
+LFM2-ColBERT-350M is a late interaction retriever model released by Liquid AI. It produces 128-dimensional per-token embeddings and uses MaxSim scoring for document retrieval. Unlike traditional bi-encoders that produce a single vector per text, ColBERT preserves token-level information for higher accuracy. It supports 8 languages including English, Arabic, Chinese, French, German, Japanese, Korean, and Spanish.
+
+The Moto G Power 5G 2023 has a PowerVR BXM-8-256 GPU that supports OpenCL 3.0. It has 128-wide SIMD, 28KB local memory, and runs at 950 MHz max. The GPU has been tested for vector similarity search but dispatch overhead of over 40 microseconds makes it slower than CPU for small workloads. It may be useful for async embedding computation during LLM inference.
+
+The L-Cache Vector Database (LCVDB) is a custom HNSW vector database designed to fit entirely within CPU L1 and L2 caches. It stores 48-dimensional int8 vectors in 64-byte cache-line-aligned structures. With M=16 neighbors per node and ef_search=64, it achieves 425K queries per second at N=32 and 36.7K QPS at N=512 with 100% recall at 5.
+
+The Moltar project's Magisk boot script automatically stops Android framework services on device boot and sets CPU governors to performance mode. This ensures consistent inference performance without manual intervention. The script is located at /data/adb/service.d/moltar_perf.sh on the device.
+
+The NDK toolchain used for cross-compilation is located at /opt/android-ndk-r27c. Device binaries are compiled with aarch64-linux-android33-clang for dynamic linking or aarch64-linux-gnu-gcc with -static for static binaries. All testing is done on-device via ADB since the host is x86_64 and cannot run ARM binaries.
