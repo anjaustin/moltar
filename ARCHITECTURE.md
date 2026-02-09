@@ -94,7 +94,7 @@ User query
            ▼
 ┌──────────────────────┐
 │  MaxSim Search       │  Brute-force over all document chunks
-│  (NEON SDOT)         │  ~15 ms for 10 chunks
+│  (NEON SDOT)         │  ~92 ms for 50 chunks
 └──────────┬───────────┘
            │ top-k chunk text
            ▼
@@ -164,7 +164,11 @@ research/colbert/
 ├── moltar_rag.c        # Variance-weighted MaxSim search tool
 ├── moltar_rag.sh       # Shell orchestrator (ingest, query, demo)
 ├── knowledge/
-│   └── moltar.txt      # Sample knowledge base
+│   ├── moltar.txt              # Moltar project internals (10 chunks)
+│   ├── arm_architecture.txt    # ARM Cortex-A78, NEON, SDOT, caches (10 chunks)
+│   ├── llm_quantization.txt    # Q4_0, Q8_0, GGUF, spec decode (10 chunks)
+│   ├── vector_search.txt       # HNSW, ColBERT, ANN, embeddings (10 chunks)
+│   └── android_linux.txt       # Android kernel, mmap, Magisk, ADB (10 chunks)
 └── Makefile            # Cross-compile with aarch64-linux-gnu-gcc -static
 ```
 
@@ -309,7 +313,7 @@ The OS handles memory pressure: when ColBERT loads, LFM2-1.2B pages get evicted 
 | Step | Time |
 |------|------|
 | ColBERT embedding (cold) | ~0.9 s |
-| MaxSim search (10 chunks) | ~15 ms |
+| MaxSim search (50 chunks) | ~92 ms |
 | LFM2-1.2B reload (mmap fault-in) | ~4-5 s |
 | Prompt processing (~220 tokens) | ~2.4 s |
 | Generation (~60 tokens) | ~2.9 s |

@@ -1,5 +1,22 @@
 # Changelog
 
+## 44ac2ab — Knowledge base expansion (2026-02-09)
+
+### Added
+- **4 new knowledge documents** in `research/colbert/knowledge/`:
+  - `arm_architecture.txt` — Cortex-A78, NEON, SDOT, cache hierarchy, LPDDR4X, DSU, Dimensity 930, DVFS (10 paragraphs)
+  - `llm_quantization.txt` — Q4_0, Q8_0, GGUF, mixed quant, activation quant, speculative decoding, KV cache, perplexity (10 paragraphs)
+  - `vector_search.txt` — HNSW, cosine similarity, ANN, ColBERT, product quantization, embeddings, RAG, late interaction, IVF (10 paragraphs)
+  - `android_linux.txt` — Android kernel, mmap, page cache, zygote, taskset, Magisk, CPU governors, OOM killer, ADB, Termux (10 paragraphs)
+- **50 total chunks** across 5 knowledge domains (up from 10 chunks in 1 document)
+
+### Changed
+- **RAG_TOP_K bumped from 2 to 3** in both `moltar-agent.c` and `moltar-server.c` for better coverage with larger corpus
+
+### Measured
+- MaxSim search at 50 chunks: **~92 ms** (under 100 ms target)
+- Cross-domain retrieval verified: distinctive queries retrieve correct domain chunks
+
 ## 7cda8d5 — HTTP server + web chat UI (2026-02-09)
 
 ### Added
