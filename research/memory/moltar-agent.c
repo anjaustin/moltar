@@ -54,7 +54,7 @@
 #define RAG_EMBEDDING   RAG_BASE "/llama-embedding"
 #define RAG_SEARCH      RAG_BASE "/moltar_rag"
 #define RAG_INDEX       RAG_BASE "/rag_index"
-#define RAG_TOP_K       2        /* top-K knowledge chunks to retrieve      */
+#define RAG_TOP_K       3        /* top-K knowledge chunks to retrieve      */
 
 /* ---------- Turn storage ---------- */
 

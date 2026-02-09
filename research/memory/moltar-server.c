@@ -54,7 +54,7 @@
 #define RAG_EMBEDDING   RAG_BASE "/llama-embedding"
 #define RAG_SEARCH      RAG_BASE "/moltar_rag"
 #define RAG_INDEX       RAG_BASE "/rag_index"
-#define RAG_TOP_K       2
+#define RAG_TOP_K       3
 
 /* ---------- HTTP Configuration ---------- */
 
