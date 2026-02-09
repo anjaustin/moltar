@@ -431,10 +431,10 @@ int main(int argc, char **argv) {
 
     /* RAG defaults */
     rag_cfg.enabled = 0;
-    strncpy(rag_cfg.colbert_model, RAG_COLBERT, sizeof(rag_cfg.colbert_model));
-    strncpy(rag_cfg.embedding_bin, RAG_EMBEDDING, sizeof(rag_cfg.embedding_bin));
-    strncpy(rag_cfg.search_bin, RAG_SEARCH, sizeof(rag_cfg.search_bin));
-    strncpy(rag_cfg.index_dir, RAG_INDEX, sizeof(rag_cfg.index_dir));
+    snprintf(rag_cfg.colbert_model, sizeof(rag_cfg.colbert_model), "%s", RAG_COLBERT);
+    snprintf(rag_cfg.embedding_bin, sizeof(rag_cfg.embedding_bin), "%s", RAG_EMBEDDING);
+    snprintf(rag_cfg.search_bin, sizeof(rag_cfg.search_bin), "%s", RAG_SEARCH);
+    snprintf(rag_cfg.index_dir, sizeof(rag_cfg.index_dir), "%s", RAG_INDEX);
     rag_cfg.top_k = RAG_TOP_K;
     rag_cfg.n_chunks = 0;
 
@@ -459,7 +459,7 @@ int main(int argc, char **argv) {
         else if (strcmp(argv[i], "--no-rag") == 0)
             rag_cfg.enabled = 0;
         else if (strcmp(argv[i], "--rag-index") == 0 && i + 1 < argc)
-            strncpy(rag_cfg.index_dir, argv[++i], sizeof(rag_cfg.index_dir));
+            snprintf(rag_cfg.index_dir, sizeof(rag_cfg.index_dir), "%s", argv[++i]);
         else if (strcmp(argv[i], "--session") == 0 && i + 1 < argc)
             session_path = argv[++i];
         else {
@@ -538,8 +538,13 @@ int main(int argc, char **argv) {
         fprintf(stderr, "[moltar] Initializing working memory (LCVDB + projection)\n");
         moltar_proj_init(&proj, n_embd, PROJ_SEED);
 
-        posix_memalign(&topo_buf, 64, MAX_TURNS * sizeof(lcvdb_topo_t));
-        posix_memalign(&vec_buf, 64, MAX_TURNS * sizeof(lcvdb_vec_t));
+        if (posix_memalign(&topo_buf, 64, MAX_TURNS * sizeof(lcvdb_topo_t)) != 0 ||
+            posix_memalign(&vec_buf, 64, MAX_TURNS * sizeof(lcvdb_vec_t)) != 0) {
+            fprintf(stderr, "[moltar] ERROR: failed to allocate LCVDB buffers\n");
+            llama_free(ctx);
+            llama_model_free(model);
+            return 1;
+        }
         lcvdb_init(&vdb, topo_buf, vec_buf, MAX_TURNS);
 
         fprintf(stderr, "[moltar] Projection: %dD -> 48D int8 (%.1f KB matrix)\n",

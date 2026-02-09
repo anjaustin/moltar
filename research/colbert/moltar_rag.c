@@ -172,8 +172,14 @@ static int cmd_search(const char *query_emb_path, const char *index_dir,
      *
      * This decomposes MaxSim into individual query token contributions.
      */
-    /* Stack allocation: max 32 query tokens × 512 chunks × 4 bytes = 64 KB */
-    int32_t per_token[COLBERT_MAX_QTOKENS][MAX_CHUNKS];
+    /* Heap-allocated: up to 32 query tokens × 512 chunks × 4 bytes = 64 KB */
+    int32_t (*per_token)[MAX_CHUNKS] = (int32_t (*)[MAX_CHUNKS])
+        malloc(COLBERT_MAX_QTOKENS * MAX_CHUNKS * sizeof(int32_t));
+    if (!per_token) {
+        fprintf(stderr, "moltar_rag: failed to allocate per_token array\n");
+        for (int c = 0; c < n_loaded; c++) free(chunks[c].emb);
+        return 1;
+    }
 
     for (int q = 0; q < n_qtokens; q++) {
         const int8_t *qt = &query_i8[q * COLBERT_EMB_DIM];
@@ -307,6 +313,7 @@ static int cmd_search(const char *query_emb_path, const char *index_dir,
             n_loaded, (long long)(ns / 1000), n_qtokens);
 
     /* Cleanup */
+    free(per_token);
     for (int c = 0; c < n_loaded; c++)
         free(chunks[c].emb);
 
