@@ -63,7 +63,7 @@ int main(void) {
     /* Size report */
     printf("\nMemory layout (split storage):\n");
     printf("  sizeof(lcvdb_t):      %zu bytes (1 cache line)\n", sizeof(lcvdb_t));
-    printf("  sizeof(lcvdb_topo_t): %zu bytes (1/2 cache line)\n", sizeof(lcvdb_topo_t));
+    printf("  sizeof(lcvdb_topo_t): %zu bytes (1 cache line)\n", sizeof(lcvdb_topo_t));
     printf("  sizeof(lcvdb_vec_t):  %zu bytes (1 cache line)\n", sizeof(lcvdb_vec_t));
     printf("  Topo buffer:          %zu bytes (%d nodes x %zu)\n",
            (size_t)max_nodes * sizeof(lcvdb_topo_t), max_nodes, sizeof(lcvdb_topo_t));

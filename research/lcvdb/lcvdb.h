@@ -8,27 +8,32 @@
  *   - Vector array touched only for distance computation
  *   - Payload ID maps to user's external data
  *
- * Topology node: 32 bytes (2 nodes per cache line)
- *   [0..15]   neighbor IDs (uint16 x 8, M=8)
- *   [16]      neighbor count (uint8)
- *   [17]      max_layer (uint8)
- *   [18..19]  flags (uint16: bit 0 = deleted)
- *   [20..23]  payload_id (uint32: external ID)
- *   [24..31]  reserved
+ * Topology node: 64 bytes (1 cache line, M=16)
+ *   [0..31]   neighbor IDs (uint16 x 16)
+ *   [32]      neighbor count (uint8)
+ *   [33]      max_layer (uint8)
+ *   [34..35]  flags (uint16: bit 0 = deleted)
+ *   [36..39]  payload_id (uint32: external ID)
+ *   [40..63]  reserved (24 bytes)
  *
  * Vector slot: 64 bytes (1 cache line)
  *   [0..47]   int8 vector (48D)
  *   [48..63]  padding
  *
- * Memory budget (N=4096):
- *   Topology: 32 * 4096 = 128 KB → L2
- *   Vectors:  64 * 4096 = 256 KB → L2/L3
- *   Total:    384 KB + code + stack
- *
  * Memory budget (N=256):
- *   Topology: 32 * 256 =   8 KB → L1D
- *   Vectors:  64 * 256 =  16 KB → L1D
- *   Total:     24 KB + code + stack → L1D (64 KB)
+ *   Topology: 64 * 256  =  16 KB → L1D
+ *   Vectors:  64 * 256  =  16 KB → L1D
+ *   Total:     32 KB + code + stack → L1D (64 KB)
+ *
+ * Memory budget (N=1024):
+ *   Topology: 64 * 1024 =  64 KB → L2
+ *   Vectors:  64 * 1024 =  64 KB → L2
+ *   Total:    128 KB → L2 (256 KB)
+ *
+ * Memory budget (N=4096):
+ *   Topology: 64 * 4096 = 256 KB → L2/L3
+ *   Vectors:  64 * 4096 = 256 KB → L2/L3
+ *   Total:    512 KB + code + stack
  * ========================================================================== */
 
 #ifndef LCVDB_H
@@ -39,10 +44,11 @@
 /* ---------- Configuration ---------- */
 #define LCVDB_VEC_DIM       48      /* int8 dimensions per vector           */
 #define LCVDB_VEC_SLOT      64      /* bytes per vector slot (padded)       */
-#define LCVDB_TOPO_SIZE     32      /* bytes per topology node              */
-#define LCVDB_M             8       /* max neighbors per node (layer 0)     */
-#define LCVDB_M_UPPER       4       /* max neighbors per node (upper layers)*/
+#define LCVDB_TOPO_SIZE     64      /* bytes per topology node (1 cache line)*/
+#define LCVDB_M             16      /* max neighbors per node (layer 0)     */
+#define LCVDB_M_UPPER       8       /* max neighbors per node (upper layers)*/
 #define LCVDB_EF_SEARCH     64      /* beam width during search             */
+#define LCVDB_EF_CONSTRUCT  64      /* beam width during insert             */
 #define LCVDB_MAX_LAYERS    4       /* maximum HNSW layers                  */
 #define LCVDB_MAX_NODES     65535   /* max nodes (uint16 IDs, 0xFFFF=invalid)*/
 
@@ -52,17 +58,25 @@
 /* ---------- Invalid ID sentinel ---------- */
 #define LCVDB_INVALID_ID    0xFFFF
 
-/* ---------- Topology Node ---------- */
-typedef struct __attribute__((aligned(32))) {
-    uint16_t neighbors[LCVDB_M];        /* [0..15]  neighbor node IDs       */
-    uint8_t  neighbor_count;            /* [16]     actual edge count       */
-    uint8_t  max_layer;                 /* [17]     highest layer for node  */
-    uint16_t flags;                     /* [18..19] bit flags               */
-    uint32_t payload_id;                /* [20..23] external payload ID     */
-    uint8_t  _reserved[8];             /* [24..31] pad to 32 bytes         */
+/* ---------- Topology Node ----------
+ * 64 bytes = 1 cache line. M=16 neighbors × 2 bytes = 32 bytes for IDs.
+ *   [0..31]   neighbor IDs (uint16 x 16)
+ *   [32]      neighbor count (uint8)
+ *   [33]      max_layer (uint8)
+ *   [34..35]  flags (uint16: bit 0 = deleted)
+ *   [36..39]  payload_id (uint32: external ID)
+ *   [40..63]  reserved (24 bytes)
+ */
+typedef struct __attribute__((aligned(64))) {
+    uint16_t neighbors[LCVDB_M];        /* [0..31]  neighbor node IDs       */
+    uint8_t  neighbor_count;            /* [32]     actual edge count       */
+    uint8_t  max_layer;                 /* [33]     highest layer for node  */
+    uint16_t flags;                     /* [34..35] bit flags               */
+    uint32_t payload_id;                /* [36..39] external payload ID     */
+    uint8_t  _reserved[24];            /* [40..63] pad to 64 bytes         */
 } lcvdb_topo_t;
 
-_Static_assert(sizeof(lcvdb_topo_t) == 32, "Topo node must be 32 bytes");
+_Static_assert(sizeof(lcvdb_topo_t) == 64, "Topo node must be 1 cache line (64 bytes)");
 
 /* ---------- Vector Slot ---------- */
 typedef struct __attribute__((aligned(64))) {
@@ -111,7 +125,7 @@ _Static_assert(sizeof(lcvdb_t) == 64, "DB struct must be exactly 1 cache line");
 /* ---------- API ---------- */
 
 /* Initialize a new database. Caller provides aligned memory.
- *   topo_buf: 32-byte aligned, at least max_nodes * 32 bytes
+ *   topo_buf: 64-byte aligned, at least max_nodes * 64 bytes
  *   vec_buf:  64-byte aligned, at least max_nodes * 64 bytes
  *   max_nodes: capacity (up to 65534; 65535 is reserved as invalid)
  */
@@ -146,14 +160,14 @@ void lcvdb_dot_i8_batch4(const int8_t *c0, const int8_t *c1,
 
 /* ---------- Memory Budget ---------- */
 /*
- * Split storage: Topology + Vectors
+ * Split storage: Topology (64B each) + Vectors (64B each) = 128B/node
  *
- *   N=256:    Topo=8KB + Vec=16KB  = 24 KB → L1D (64 KB)
- *   N=512:    Topo=16KB + Vec=32KB = 48 KB → L1D
- *   N=1024:   Topo=32KB + Vec=64KB = 96 KB → L2 (256 KB)
- *   N=4096:   Topo=128KB + Vec=256KB = 384 KB → L2/L3
- *   N=16384:  Topo=512KB + Vec=1MB = 1.5 MB → L3/DRAM
- *   N=65535:  Topo=2MB + Vec=4MB = 6 MB → DRAM
+ *   N=256:    Topo=16KB + Vec=16KB  =  32 KB → L1D (64 KB)
+ *   N=512:    Topo=32KB + Vec=32KB  =  64 KB → L1D/L2
+ *   N=1024:   Topo=64KB + Vec=64KB  = 128 KB → L2 (256 KB)
+ *   N=4096:   Topo=256KB + Vec=256KB = 512 KB → L2/L3
+ *   N=16384:  Topo=1MB + Vec=1MB    =   2 MB → L3/DRAM
+ *   N=65535:  Topo=4MB + Vec=4MB    =   8 MB → DRAM
  *
  * During search, only topology is traversed continuously.
  * Vectors loaded on-demand for distance computation.

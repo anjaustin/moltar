@@ -71,10 +71,10 @@ int main(void) {
             lcvdb_insert(&db, v, (uint32_t)i);
         }
 
-        printf("N=%4d  topo=%.1fKB vec=%.1fKB total=%.1fKB\n", N,
-               (double)N * 32 / 1024.0,
-               (double)N * 64 / 1024.0,
-               (double)N * 96 / 1024.0);
+        int topo_kb = N * (int)sizeof(lcvdb_topo_t) / 1024;
+        int vec_kb = N * (int)sizeof(lcvdb_vec_t) / 1024;
+        printf("N=%4d  topo=%dKB vec=%dKB total=%dKB\n", N,
+               topo_kb, vec_kb, topo_kb + vec_kb);
 
         /* Reduce iterations for large N */
         int iters = bench_iters;

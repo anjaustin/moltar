@@ -120,10 +120,10 @@ int main(void) {
 
         /* Count bidirectional edges and neighbor stats */
         int bidir = 0, total_edges = 0;
-        int nbr_hist[9] = {0};
+        int nbr_hist[LCVDB_M + 1] = {0};
         for (int i = 0; i < N; i++) {
             int nc = db.topo_array[i].neighbor_count;
-            if (nc <= 8) nbr_hist[nc]++;
+            if (nc <= LCVDB_M) nbr_hist[nc]++;
             for (int j = 0; j < nc; j++) {
                 total_edges++;
                 uint16_t nb = db.topo_array[i].neighbors[j];
@@ -133,17 +133,17 @@ int main(void) {
             }
         }
 
-        double avg_nbr = (double)total_edges / N;
+        int bidir_pct = total_edges > 0 ? (int)(100LL * bidir / total_edges) : 0;
+        int avg_nbr_x10 = (int)(10LL * total_edges / N);
 
-        printf("N=%4d | reach=%d/%d | edges=%d (%.0f%% bidir) | avg_nbr=%.1f\n",
+        printf("N=%4d | reach=%d/%d | edges=%d (%d%% bidir) | avg_nbr=%d.%d\n",
                N, reachable, N, total_edges,
-               total_edges > 0 ? 100.0 * bidir / total_edges : 0.0, avg_nbr);
-        printf("        topo=%.1fKB vec=%.1fKB total=%.1fKB\n",
-               (double)N * 32 / 1024.0,
-               (double)N * 64 / 1024.0,
-               (double)N * 96 / 1024.0);
+               bidir_pct, avg_nbr_x10 / 10, avg_nbr_x10 % 10);
+        int topo_kb = N * (int)sizeof(lcvdb_topo_t) / 1024;
+        int vec_kb = N * (int)sizeof(lcvdb_vec_t) / 1024;
+        printf("        topo=%dKB vec=%dKB total=%dKB\n", topo_kb, vec_kb, topo_kb + vec_kb);
         printf("        nbr_hist: ");
-        for (int i = 0; i <= 8; i++)
+        for (int i = 0; i <= LCVDB_M; i++)
             if (nbr_hist[i]) printf("%d:%d ", i, nbr_hist[i]);
         printf("\n");
 
@@ -181,8 +181,9 @@ int main(void) {
                 total_possible += k;
             }
 
-            printf("        recall@%d = %.1f%% (%d/%d)\n",
-                   k, 100.0 * total_hits / total_possible, total_hits, total_possible);
+            int recall_pct_x10 = (int)(1000LL * total_hits / total_possible);
+            printf("        recall@%d = %d.%d%% (%d/%d)\n",
+                   k, recall_pct_x10 / 10, recall_pct_x10 % 10, total_hits, total_possible);
         }
 
         printf("\n");
