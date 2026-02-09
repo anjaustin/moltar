@@ -99,14 +99,14 @@ These workloads require small N (64-512), continuous inserts, instant lookups, a
 
 | N | Search (ns) | QPS | Recall@5 | Topo | Vec | Total | Fits in |
 |---|------------|-----|----------|------|-----|-------|---------|
-| 32 | 2,291 | 436K | 100% | 2 KB | 2 KB | 4 KB | L1D |
-| 64 | 6,060 | 165K | 100% | 4 KB | 4 KB | 8 KB | L1D |
-| 128 | 12,505 | 80K | 100% | 8 KB | 8 KB | 16 KB | L1D |
-| 256 | 19,415 | 51K | 99.6% | 16 KB | 16 KB | 32 KB | L1D (64 KB) |
-| 512 | 23,488 | 42K | 94.4% | 32 KB | 32 KB | 64 KB | L1D/L2 |
-| 1024 | 24,272 | 41K | 84.8% | 64 KB | 64 KB | 128 KB | L2 (256 KB) |
+| 32 | 2,363 | 423K | 100% | 2 KB | 2 KB | 4 KB | L1D |
+| 64 | 6,682 | 150K | 100% | 4 KB | 4 KB | 8 KB | L1D |
+| 128 | 13,697 | 73K | 100% | 8 KB | 8 KB | 16 KB | L1D |
+| 256 | 23,437 | 43K | **100%** | 16 KB | 16 KB | 32 KB | L1D (64 KB) |
+| 512 | 27,177 | 37K | **100%** | 32 KB | 32 KB | 64 KB | L1D/L2 |
+| 1024 | 27,125 | 37K | 93.2% | 64 KB | 64 KB | 128 KB | L2 (256 KB) |
 
-**Note**: Recall numbers may be stale (pre-beam-search-fix). Re-benchmark needed. build_ref.c now uses HNSW beam search during insert (O(log N)) instead of brute-force O(N) scan.
+Beam search during insert (build_ref.c) + NEON dot products. 100% graph connectivity at all N. Search is ~10-20% slower than the old brute-force-insert graph, but recall is dramatically better (was 84.8% at N=1024, now 93.2%; was 94.4% at N=512, now 100%).
 
 **Files**:
 - `lcvdb.h` — split storage structs and API
@@ -149,19 +149,15 @@ These workloads require small N (64-512), continuous inserts, instant lookups, a
 - Total memory overhead: <64 KB for 256 turns (fits L1D)
 - Improved coherence on multi-turn conversations vs no working memory
 
-### P0 — LCVDB: Re-Benchmark + Quick Fixes
+### ~~P0 — LCVDB: Re-Benchmark + Quick Fixes~~ DONE
 
-**Problem**: Documentation numbers may be stale (pre-beam-search-fix). Topo memory sizes were wrong in all docs (listed as 32B/node, actual is 64B/node with M=16).
-
-**Work**:
-1. Build and push `test_recall` to device, compare with documented numbers
-2. Switch build_ref.c from scalar `dot_i8()` to `lcvdb_dot_i8` (NEON) — one-line change, ~3x build speedup
-3. Document corrections already applied (this session)
-
-**Acceptance criteria**:
-- Fresh recall numbers at N=32..1024 with current build_ref.c (beam search)
-- Build uses NEON dot product
-- All doc memory numbers reflect 64B/node topo (corrected)
+Confirmed: documented recall numbers were stale (pre-beam-search-fix). Fresh results:
+- **recall@5 = 100% through N=512** (was 94.4% at N=512, 99.6% at N=256)
+- **recall@5 = 93.2% at N=1024** (was 84.8%)
+- **100% graph connectivity at all N**
+- Build switched from scalar to NEON dot product (`lcvdb_dot_i8`)
+- Search ~10-20% slower due to better-connected graph (43K QPS at N=256, was 51K)
+- All doc memory numbers corrected to 64B/node topo
 
 ### P1 — RAG: Knowledge Base Expansion + Quality
 
@@ -196,13 +192,13 @@ These workloads require small N (64-512), continuous inserts, instant lookups, a
 - **Q3_0 or Q2_0 quantization**: Lower bits per weight, but quality drops. Need to measure LFM2 quality at Q3.
 - **KV cache quantization**: Reduce KV cache memory to keep more in cache.
 
-### P2 — LCVDB: Recall Fix at Large N (if needed)
+### P2 — LCVDB: Recall Fix at N=1024+ (if needed)
 
-**Problem**: If re-benchmark confirms recall <95% at N=512+, two likely causes:
+**Status**: Recall is 100% through N=512 (working memory sweet spot). At N=1024, recall@5 is 93.2% — good but not perfect. Two likely causes:
 1. **Sparse upper layers**: P(layer>=1) = 1/8 vs standard HNSW's ~1/3. Fix: change PRNG layer assignment.
 2. **Aggressive diversity**: `>=` threshold over-prunes edges. Fix: relax to `>`.
 
-These only matter if LCVDB takes on workloads at N>512. For working memory (N=64-512), current recall is 94-100%.
+Only matters if LCVDB takes on workloads at N>512. For working memory (N=64-512), recall is perfect.
 
 ### P3 — GPU Async Search/Scoring
 

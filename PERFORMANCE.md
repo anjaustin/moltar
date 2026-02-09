@@ -61,14 +61,14 @@ HNSW graph search with NEON int8 dot products. Split storage layout: topology (6
 
 | N | k=1 (ns) | k=5 (ns) | k=10 (ns) | QPS | Cycles |
 |---|----------|----------|-----------|-----|--------|
-| 32 | 2,291 | 2,289 | 2,284 | 436K | 5,040 |
-| 64 | 6,060 | 6,052 | 6,055 | 165K | 13,332 |
-| 128 | 12,505 | 12,495 | 12,515 | 80K | 27,511 |
-| 256 | 19,415 | 19,350 | 19,365 | 51K | 42,713 |
-| 512 | 23,488 | 23,580 | 23,532 | 42K | 51,673 |
-| 1024 | 24,272 | 24,202 | 24,238 | 41K | 53,398 |
+| 32 | 2,363 | 2,362 | 2,367 | 423K | 5,198 |
+| 64 | 6,686 | 6,682 | 6,683 | 150K | 14,709 |
+| 128 | 13,711 | 13,697 | 13,720 | 73K | 30,164 |
+| 256 | 23,460 | 23,437 | 23,412 | 43K | 51,612 |
+| 512 | 27,185 | 27,177 | 27,193 | 37K | 59,807 |
+| 1024 | 27,115 | 27,125 | 27,050 | 37K | 59,653 |
 
-Note: k value barely affects latency — beam search dominates, not output copy.
+Note: k value barely affects latency — beam search dominates, not output copy. Search is ~10-20% slower than the old brute-force-insert graph because the better-connected graph causes beam search to explore more nodes. The tradeoff is dramatically better recall.
 
 ### Recall
 
@@ -77,24 +77,26 @@ Note: k value barely affects latency — beam search dominates, not output copy.
 | 32 | 100% (50/50) | 100% (250/250) | 100% (500/500) |
 | 64 | 100% (50/50) | 100% (250/250) | 100% (500/500) |
 | 128 | 100% (50/50) | 100% (250/250) | 100% (500/500) |
-| 256 | 100% (50/50) | 99.6% (249/250) | 98.6% (493/500) |
-| 512 | 88% (44/50) | 94.4% (236/250) | 94.0% (470/500) |
-| 1024 | 84% (42/50) | 84.8% (212/250) | 81.2% (406/500) |
+| 256 | 100% (50/50) | 100% (250/250) | 100% (500/500) |
+| 512 | 100% (50/50) | 100% (250/250) | 99.0% (495/500) |
+| 1024 | 96% (48/50) | 93.2% (233/250) | 94.6% (473/500) |
 
-**Note**: build_ref.c now uses HNSW beam search during insert (not brute-force). These recall numbers may be stale (pre-fix). Re-benchmark needed. If recall is still low at large N, likely causes are sparse upper layers (P(layer>=1) = 1/8 vs standard 1/3) and aggressive diversity pruning (>= threshold).
+100% graph connectivity at all N. Beam search during insert (build_ref.c) with NEON dot products produces much better graphs than the old brute-force candidate collection. Previous numbers (84.8% recall@5 at N=1024) were from the pre-beam-search-fix era.
+
+Remaining recall gap at N=1024 likely caused by sparse upper layers (P(layer>=1) = 1/8 vs standard HNSW 1/3) and aggressive diversity pruning (>= threshold). Not blocking for the working memory use case (N=64-512, where recall is 100%).
 
 ### Build Time
 
 | N | Total build | Per insert |
 |---|-------------|------------|
-| 32 | 45 us | 1,423 ns |
-| 64 | 188 us | 2,937 ns |
-| 128 | 647 us | 5,057 ns |
-| 256 | 2.1 ms | 8,217 ns |
-| 512 | 6.8 ms | 13,365 ns |
-| 1024 | 23.6 ms | 22,999 ns |
+| 32 | 30 us | 953 ns |
+| 64 | 215 us | 3,371 ns |
+| 128 | 1,057 us | 8,260 ns |
+| 256 | 4.4 ms | 16,999 ns |
+| 512 | 13.8 ms | 27,046 ns |
+| 1024 | 34.5 ms | 33,650 ns |
 
-**Note**: build_ref.c now uses HNSW beam search during insert (O(log N) per node). These build times may be stale. Additionally, build still uses scalar C dot products — switching to NEON (`lcvdb_dot_i8`) would give ~3x speedup on the distance computation path.
+Build uses HNSW beam search during insert + NEON dot products (via `lcvdb_dot_i8` from distance.S). Per-insert cost is higher than old brute-force at small N because beam search does more graph traversal, but graph quality is dramatically better.
 
 ### Memory Budget (Split Storage)
 

@@ -1,7 +1,7 @@
 /* L-Cache VDB — C reference insert with HNSW beam search + diversity heuristic (split storage)
  *
  * Proper HNSW insert (Algorithms 1+4 from Malkov & Yashunin 2018):
- *   - Topology array (lcvdb_topo_t, 32 bytes each): graph edges, metadata
+ *   - Topology array (lcvdb_topo_t, 64 bytes each): graph edges, metadata
  *   - Vector array (lcvdb_vec_t, 64 bytes each): embeddings
  *   - uint16 IDs (max 65534 nodes, 0xFFFF = invalid)
  *
@@ -48,13 +48,8 @@ static uint8_t lcvdb_assign_layer_ref(uint32_t *prng) {
     return layer;
 }
 
-/* Scalar dot product (used during build; search uses NEON from distance.S) */
-static int32_t dot_i8(const int8_t *a, const int8_t *b) {
-    int32_t sum = 0;
-    for (int i = 0; i < LCVDB_VEC_DIM; i++)
-        sum += (int32_t)a[i] * (int32_t)b[i];
-    return sum;
-}
+/* Use NEON dot product from distance.S (same as search path) */
+#define dot_i8 lcvdb_dot_i8
 
 uint16_t lcvdb_insert(lcvdb_t *db, const int8_t *vector, uint32_t payload_id) {
     uint32_t new_id = db->node_count;

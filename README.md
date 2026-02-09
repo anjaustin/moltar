@@ -17,9 +17,9 @@ Embedded AI inference on a $99 phone. Custom llama.cpp kernels, ColBERT RAG pipe
 
 | N nodes | Search latency | QPS | Recall@5 | Working set |
 |---------|---------------|-----|----------|-------------|
-| 256 | 19.4 us | 51K | 99.6% | 32 KB (L1D) |
-| 512 | 23.5 us | 42K | 94.4% | 64 KB (L1D/L2) |
-| 1024 | 24.3 us | 41K | 84.8% | 128 KB (L2) |
+| 256 | 23.4 us | 43K | **100%** | 32 KB (L1D) |
+| 512 | 27.2 us | 37K | **100%** | 64 KB (L1D/L2) |
+| 1024 | 27.1 us | 37K | 93.2% | 128 KB (L2) |
 
 **On-device RAG** — ColBERT late-interaction retrieval + LLM generation:
 
