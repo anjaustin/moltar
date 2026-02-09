@@ -20,7 +20,7 @@ endif
 CFLAGS = -O2 -Wall -march=armv8-a
 ASFLAGS = -march=armv8-a
 
-# Assembly sources (NEON distance only — init/build/search are C ref now)
+# Assembly sources (NEON distance functions)
 ASM_SRCS = distance.S
 # C reference sources (split storage)
 C_SRCS = init_ref.c build_ref.c search_ref.c

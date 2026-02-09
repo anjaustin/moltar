@@ -13,6 +13,8 @@ research/lcvdb/test_recall
 research/lcvdb/test_bench
 research/lcvdb/gpu_probe
 research/lcvdb/gpu_bench
+research/lcvdb/test_bench_ref
+research/lcvdb/test_lcvdb_ref
 
 # Test binary, built with `go test -c`
 *.test
