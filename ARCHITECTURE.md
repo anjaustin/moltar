@@ -1,6 +1,6 @@
 # Architecture
 
-Moltar has three compute engines — LLM inference, ColBERT retrieval, and vector search — all optimized for the MT6855V's memory hierarchy.
+Moltar has four integrated systems — LLM inference, ColBERT retrieval, vector search, and a memory integration layer — all optimized for the MT6855V's memory hierarchy.
 
 ## Target Hardware
 
@@ -229,6 +229,78 @@ research/lcvdb/
 ```
 
 Old assembly files (`init.S`, `build.S`, `search.S`) exist but are not used — they target the pre-split-storage layout.
+
+## Memory Integration Layer
+
+Located in `research/memory/`. Bridges LFM2 inference with LCVDB working memory via random projection of hidden states. This is the "glue" that makes the three-layer memory architecture work as a unified system.
+
+### Data Flow (per conversation turn)
+
+```
+User input
+    │
+    ▼
+┌─────────────────────┐
+│  LCVDB Search       │  Search for top-3 related prior turns
+│  (23 us)            │  using most recent turn's vector as query
+└──────────┬──────────┘
+           │ context text
+           ▼
+┌─────────────────────┐
+│  ChatML Prompt      │  System + retrieved context + recent turn + user input
+│  Construction       │  <|im_start|>system ... <|im_end|>
+└──────────┬──────────┘
+           │
+           ▼
+┌─────────────────────┐
+│  LFM2-1.2B Decode   │  embeddings=true → logits + hidden state
+│  (21 tok/s)         │  llama_get_embeddings_ith(-1) → 2048D float
+└──────────┬──────────┘
+           │ 2048D float hidden state
+           ▼
+┌─────────────────────┐
+│  Random Projection  │  Rademacher {-1,+1} matrix: 2048×48, 96 KB
+│  (90 us)            │  max-abs quantization → 48D int8
+└──────────┬──────────┘
+           │ 48D int8
+           ▼
+┌─────────────────────┐
+│  LCVDB Insert       │  Store vector + turn text for future retrieval
+│  (~5 us)            │
+└─────────────────────┘
+```
+
+### Random Projection (`project.h`, `project.c`)
+
+Johnson-Lindenstrauss projection from LFM2 hidden states to LCVDB vectors.
+
+- **Matrix**: `int8[48][2048]`, Rademacher {-1,+1} entries, 96 KB
+- **Deterministic**: xorshift32 PRNG with seed `0x4D4F4C54` ("MOLT")
+- **Apply**: float×int8 matrix multiply → float[48] → max-abs quantize → int8[48]
+- **Latency**: 90 us on A78 @ 2.2 GHz (negligible vs. LLM decode time)
+- **Quality**: 100% cluster ordering preservation on structured data (JL guarantee)
+
+### `moltar-agent` (`moltar-agent.c`)
+
+The main integration binary. 24 KB, dynamically linked against `libllama.so`, LCVDB compiled in statically.
+
+- **Loads LFM2-1.2B** with `embeddings=true` via `llama_model_load_from_file` + `llama_init_from_model`
+- **Sampling**: configurable temperature, top-k, top-p (default: greedy)
+- **ChatML format**: `<|im_start|>system/user/assistant<|im_end|>` — matches LFM2 tokenizer chat template
+- **Context injection**: system message includes retrieved prior turns
+- **Hidden state extraction**: `llama_get_embeddings_ith(ctx, -1)` after final token decode
+- **Memory storage**: projects hidden state → inserts into LCVDB → stores turn text for retrieval
+
+### Files
+
+```
+research/memory/
+├── project.h           # moltar_proj_t struct, init/apply API
+├── project.c           # Rademacher projection + max-abs quantization
+├── moltar-agent.c      # Multi-turn agent: LFM2 + LCVDB working memory
+├── test_project.c      # 6 tests: init, determinism, JL, LCVDB roundtrip, latency
+└── Makefile            # test_project (GNU static) + moltar-agent (NDK dynamic)
+```
 
 ## Device Setup
 

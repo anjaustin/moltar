@@ -17,6 +17,8 @@ research/lcvdb/test_bench_ref
 research/lcvdb/test_lcvdb_ref
 research/colbert/test_colbert
 research/colbert/moltar_rag
+research/memory/test_project
+research/memory/moltar-agent
 
 # Test binary, built with `go test -c`
 *.test
