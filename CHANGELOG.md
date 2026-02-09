@@ -1,5 +1,52 @@
 # Changelog
 
+## 7cda8d5 — HTTP server + web chat UI (2026-02-09)
+
+### Added
+- **`moltar-server`** (`research/memory/moltar-server.c`) — single-threaded HTTP server embedding the full three-layer memory agent (LFM2 inference + LCVDB working memory + ColBERT RAG + session persistence) in one 37 KB binary
+  - `GET /` — embedded dark-theme web chat UI (HTML/CSS/JS inline in C string, 3050 bytes)
+  - `POST /api/chat` — `{"message":"..."}` → `{"response":"...","turn":N}`
+  - `POST /api/ingest` — `{"file":"..."}` or `{"text":"..."}` → `{"chunks":N}`
+  - `GET /api/status` — `{"turns":N,"rag_chunks":N,"rag":bool,"memory":bool}`
+  - `POST /api/rag` — toggle RAG on/off
+  - `POST /api/save` / `POST /api/load` — session persistence
+  - CORS headers (`Access-Control-Allow-Origin: *`), Content-Length-aware body reading, SIGINT/SIGTERM clean shutdown
+- **Termux boot script** (`moltar_boot.sh`) — auto-starts server on device boot with performance governors, RAG, and session persistence
+- **Makefile `server` target** — `make server` builds `moltar-server` with NDK (same build flags as `moltar-agent`)
+
+### Verified on Device
+- `GET /api/status` → `{"turns":0,"rag_chunks":11,"rag":true,"memory":true}`
+- `POST /api/chat` with RAG retrieval generates coherent response about Moltar, turn counter increments
+- `POST /api/save` → `{"success":true,"turns":2}`
+- `GET /` serves 3050 bytes of web UI HTML
+- Follow-up chat demonstrates working memory (references prior turn)
+
+## d7a6320 — Knowledge ingestion pipeline (2026-02-09)
+
+### Added
+- **`moltar_rag ingest`** command in `moltar_rag.c` — reads text file, splits by paragraph (double newline), min 80 chars, max 1600 chars with word-boundary splitting, appends to existing index, updates manifest
+- **`/ingest <file>`** and **`/learn <text>`** commands in `moltar-agent.c` — ingest from file or inline text, auto-enable RAG, prefetch LLM model back
+
+### Verified on Device
+- Standalone ingest: 3 paragraphs → 3 chunks
+- Append mode preserves existing index
+- `/learn` from agent adds chunk 10, RAG search finds it ranked #1 for distinctive query
+
+## 5f31b55 — Code hardening (2026-02-09)
+
+### Fixed
+- **Heap-allocated `per_token` array** in `moltar_rag.c` — was 64 KB on stack, now `malloc`'d with error handling + `free`
+- **`strncpy` → `snprintf`** in `moltar-agent.c` — 5 call sites now guarantee null-termination
+- **`posix_memalign` error checking** — both calls in `moltar-agent.c` now bail cleanly on failure
+
+## 65810c4 — Comprehensive documentation update (2026-02-09)
+
+### Changed
+- Updated all 5 core docs (README.md, PRD.md, ARCHITECTURE.md, PERFORMANCE.md, CHANGELOG.md)
+- Added three-layer memory diagram, session persistence, variance-weighted MaxSim, prefetch, query sanitization
+- Corrected RAG latency tables (standalone ~2s vs agent ~10-14s with model swap)
+- 285 insertions across 5 files
+
 ## 7445fc1 — Persistent session memory (2026-02-09)
 
 ### Added

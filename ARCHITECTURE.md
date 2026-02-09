@@ -340,6 +340,28 @@ The main integration binary. ~31 KB, dynamically linked against `libllama.so`, L
 - **Hidden state extraction**: `llama_get_embeddings_ith(ctx, -1)` after final token decode
 - **Memory storage**: projects hidden state → inserts into LCVDB → stores turn text for retrieval
 
+### `moltar-server` (`moltar-server.c`)
+
+HTTP server wrapping the full three-layer memory agent in a single process. Single-threaded (one request at a time — inference is single-threaded anyway). 810 lines of C, ~37 KB binary.
+
+**API endpoints**:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | GET | Embedded dark-theme web chat UI (HTML/CSS/JS inline in C string) |
+| `/api/chat` | POST | `{"message":"..."}` → `{"response":"...","turn":N}` |
+| `/api/ingest` | POST | `{"file":"..."}` or `{"text":"..."}` → `{"chunks":N}` |
+| `/api/status` | GET | `{"turns":N,"rag_chunks":N,"rag":bool,"memory":bool}` |
+| `/api/rag` | POST | `{"enabled":bool}` → toggle RAG |
+| `/api/save` | POST | Save session to disk |
+| `/api/load` | POST | Load session from disk |
+
+**Architecture**: Embeds the same `do_chat()` logic as `moltar-agent` but callable per-HTTP-request instead of per-interactive-line. Same RAG subprocess calls, same LCVDB working memory, same session persistence. CORS headers included (`Access-Control-Allow-Origin: *`).
+
+**Web UI**: Embedded as a C string constant. Dark theme chat interface with user/bot message bubbles, "Thinking..." indicator during inference, status bar showing turn count and RAG state. Auto-refreshes status after each chat.
+
+**Boot script** (`moltar_boot.sh`): Termux:Boot script that sets big-core governors to performance mode and starts `moltar-server` in the background with RAG and session persistence enabled.
+
 ### Files
 
 ```
@@ -348,18 +370,26 @@ research/memory/
 ├── project.c           # Rademacher projection + max-abs quantization
 ├── moltar-agent.c      # Three-layer memory agent: LFM2 + LCVDB + ColBERT RAG
 │                       #   session persistence, query sanitization, model prefetch
+├── moltar-server.c     # HTTP server: REST API + embedded web chat UI
+│                       #   same three-layer memory, callable per-request
+├── moltar_boot.sh      # Termux boot script for auto-start
 ├── test_project.c      # 6 tests: init, determinism, JL, LCVDB roundtrip, latency
-└── Makefile            # test_project (GNU static) + moltar-agent (NDK dynamic)
+└── Makefile            # test_project (GNU static) + moltar-agent + moltar-server (NDK dynamic)
 ```
 
 ## Device Setup
 
-### Boot Script
+### Boot Scripts
 
-`/data/adb/service.d/moltar_perf.sh` (installed via Magisk):
+**Magisk perf script** (`/data/adb/service.d/moltar_perf.sh`):
 - Stops Android framework on boot (`stop`)
 - Sets big core governors to `performance`
 - Frees ~4 GB/s DRAM bandwidth for inference
+
+**Termux boot script** (`moltar_boot.sh`, place in `~/.termux/boot/`):
+- Sets big core governors to performance mode
+- Starts `moltar-server` on big cores with RAG and session persistence
+- Logs to `/data/local/tmp/moltar-server.log`
 
 ### Runtime
 
@@ -373,6 +403,15 @@ su -c 'stop'
 
 # Pin to big cores
 taskset c0 /data/local/tmp/test_lcvdb
+
+# Run HTTP server (accessible at http://<phone-ip>:8080)
+export LD_LIBRARY_PATH=/data/local/tmp
+taskset c0 /data/local/tmp/moltar-server /data/local/tmp/LFM2-1.2B-Q4_0.gguf \
+  -t 2 -c 2048 -p 8080 --rag --session /data/local/tmp/session.bin
+
+# Or via ADB port forward from host
+adb forward tcp:8080 tcp:8080
+# Then open http://localhost:8080 in browser
 ```
 
 ## GPU

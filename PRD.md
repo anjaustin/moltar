@@ -222,11 +222,28 @@ system(cmd);
 
 **Measured**: RAG-enabled query latency ~13.6s with Android running (was ~14+ without prefetch). The prefetch runs during the MaxSim search (~16 ms), partially hiding the 4-5s model swap cost.
 
+### ~~P1 — Knowledge Ingestion Pipeline~~ DONE
+
+**Status**: `moltar_rag ingest` command added to `moltar_rag.c`. Reads text file, splits by paragraph (double newline), min 80 chars, max 1600 chars with word-boundary splitting. Appends to existing index. Per chunk: writes `.txt`, calls `llama-embedding` for ColBERT embeddings, writes `.emb`. Updates manifest.
+
+`/ingest <file>` and `/learn <text>` commands in `moltar-agent.c`. Both auto-enable RAG and prefetch LLM model back after ingestion.
+
+**Verified on device**: standalone ingest (3 paragraphs → 3 chunks), append mode, `/learn` from agent (chunk 10 added), RAG search found newly ingested chunk ranked #1 for distinctive query.
+
+### ~~P3 — HTTP Server + Web Chat UI~~ DONE
+
+**Status**: `moltar-server` — single-threaded HTTP server embedding the full three-layer memory agent (LFM2 inference + LCVDB + ColBERT RAG + session persistence) in one process. 810 lines of C, 37 KB binary.
+
+**API endpoints**: `GET /` (web UI), `POST /api/chat`, `/api/ingest`, `/api/rag`, `/api/save`, `/api/load`, `GET /api/status`. Embedded dark-theme web chat UI with message bubbles, thinking indicator, and status bar. CORS headers included.
+
+**Termux boot script** (`moltar_boot.sh`): auto-starts server on device boot with performance governors, RAG, and session persistence.
+
+**Verified on device**: status endpoint returns `{"turns":0,"rag_chunks":11,"rag":true,"memory":true}`, chat with RAG retrieval generates coherent responses, session save works, web UI served at 3050 bytes HTML.
+
 ### P1 — RAG: Knowledge Base Expansion
 
 **Work remaining**:
 - Expand knowledge base with more documents/domains
-- Build ingestion pipeline callable from the agent itself
 - Tune chunk size and overlap for better context
 - Benchmark MaxSim scaling at 100+ chunks
 
@@ -281,7 +298,9 @@ Moltar currently targets exactly one phone. Future devices:
 - **P1 — Persistent Session Memory** — DONE. `--session FILE` flag, auto-save on exit, auto-load on startup. Two-session name recall verified on device.
 - **P1 — LLM Model Prefetch** — DONE. Background `cat` prefetches LFM2 pages during MaxSim search, overlapping I/O with computation.
 - **P1 — LFM2.5-1.2B-Thinking Support** — DONE. 21.4 tok/s, `<think>` blocks work, but too verbose for interactive use.
+- **P1 — Knowledge Ingestion Pipeline** — DONE. `moltar_rag ingest`, `/ingest`, `/learn` commands. Paragraph chunking, append mode, auto-enable RAG.
 - **P2 — Integration: LLM + RAG Pipeline** — DONE. Implemented using ColBERT late-interaction retrieval.
+- **P3 — HTTP Server + Web Chat UI** — DONE. `moltar-server` (810 lines C), REST API + embedded web UI, Termux boot script. Verified on device.
 
 ### Lincoln Manifold Analysis
 
@@ -329,6 +348,7 @@ make all   # builds test_lcvdb, test_recall, test_bench
 cd research/memory
 make clean all          # builds test_project (static, GNU toolchain)
 make agent              # builds moltar-agent (dynamic, NDK, links libllama.so)
+make server             # builds moltar-server (dynamic, NDK, links libllama.so)
 
 # Cross-compile LLM (llama.cpp for Android)
 cd research/llama.cpp
@@ -342,7 +362,7 @@ adb push research/llama.cpp/build-android/bin/{llama-cli,llama-bench,llama-embed
 adb push research/llama.cpp/build-android/bin/lib*.so /data/local/tmp/
 adb push research/colbert/{moltar_rag,test_colbert,moltar_rag.sh} /data/local/tmp/
 adb push research/lcvdb/{test_lcvdb,test_recall,test_bench} /data/local/tmp/
-adb push research/memory/{test_project,moltar-agent} /data/local/tmp/
+adb push research/memory/{test_project,moltar-agent,moltar-server} /data/local/tmp/
 
 # Setup perf mode on device
 adb shell "su -c 'echo performance > /sys/devices/system/cpu/cpu6/cpufreq/scaling_governor'"
@@ -354,6 +374,10 @@ adb shell "su -c 'export LD_LIBRARY_PATH=/data/local/tmp && taskset c0 /data/loc
 
 # Run moltar-agent with ColBERT RAG + session persistence
 adb shell "su -c 'export LD_LIBRARY_PATH=/data/local/tmp && taskset c0 /data/local/tmp/moltar-agent /data/local/tmp/LFM2-1.2B-Q4_0.gguf -t 2 -c 2048 --rag --session /data/local/tmp/session.bin'"
+
+# Run moltar-server (HTTP API + web chat UI)
+adb shell "su -c 'export LD_LIBRARY_PATH=/data/local/tmp && taskset c0 /data/local/tmp/moltar-server /data/local/tmp/LFM2-1.2B-Q4_0.gguf -t 2 -c 2048 -p 8080 --rag --session /data/local/tmp/session.bin'"
+# Access via: adb forward tcp:8080 tcp:8080 && open http://localhost:8080
 
 # Run RAG demo
 adb shell "su -c 'sh /data/local/tmp/moltar_rag.sh demo'"
