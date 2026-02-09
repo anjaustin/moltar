@@ -152,7 +152,7 @@ research/colbert/
 
 ## L-Cache Vector Database
 
-Located in `research/lcvdb/`. An HNSW vector database designed to fit entirely in CPU cache. **Not used by the ColBERT RAG pipeline** — ColBERT uses per-token 128D embeddings with MaxSim scoring, architecturally different from single-vector HNSW.
+Located in `research/lcvdb/`. A cache-resident HNSW vector database designed for sub-25 us associative lookup. **Serves as the semantic working memory layer** — conversation turn recall, entity tracking, agent state. ColBERT handles long-term knowledge retrieval (different architecture, different timescale).
 
 ### Split Storage Layout
 
@@ -160,14 +160,14 @@ Three separate arrays, each with different access patterns:
 
 ```
 Topology Array (hot during graph traversal):
-  lcvdb_topo_t, 32 bytes per node, 2 nodes per cache line
-  ┌──────────────────────┬────┬────┬───────┬──────────┬──────────┐
-  │ neighbors (u16 x 8)  │ nc │ ml │ flags │ payload  │ reserved │
-  │      16 bytes        │ 1  │ 1  │  2    │    4     │    8     │
-  └──────────────────────┴────┴────┴───────┴──────────┴──────────┘
+  lcvdb_topo_t, 64 bytes per node (1 cache line), M=16
+  ┌───────────────────────────────┬────┬────┬───────┬──────────┬──────────┐
+  │   neighbors (u16 x 16)       │ nc │ ml │ flags │ payload  │ reserved │
+  │          32 bytes             │ 1  │ 1  │  2    │    4     │   24     │
+  └───────────────────────────────┴────┴────┴───────┴──────────┴──────────┘
 
 Vector Array (touched only for distance computation):
-  lcvdb_vec_t, 64 bytes per node, 1 cache line
+  lcvdb_vec_t, 64 bytes per node (1 cache line)
   ┌──────────────────────────────┬──────────┐
   │ int8 vector (48 dimensions)  │ padding  │
   │          48 bytes            │ 16 bytes │
@@ -183,19 +183,19 @@ DB Header (1 cache line):
 
 ### Why Split Storage
 
-With the old unified layout (64 bytes/node), traversing the graph loaded full vectors even when only checking neighbor lists. With split storage:
+With the old unified layout (64 bytes/node with M=8), traversing the graph loaded full vectors even when only checking neighbor lists. With split storage:
 
-- **Graph traversal** reads only topology: 32 bytes/node instead of 64
+- **Graph traversal** reads only topology: neighbor IDs + metadata, no vector data
 - **Distance computation** loads vectors on-demand: only for candidates being scored
-- At N=256: topology = 8 KB (fits L1D), vectors = 16 KB (fits L1D), total = 24 KB
-- At N=1024: topology = 32 KB (fits L2), search touches only a fraction of vectors
+- At N=256: topology = 16 KB, vectors = 16 KB, total = 32 KB → fits L1D (64 KB)
+- At N=1024: topology = 64 KB, vectors = 64 KB, total = 128 KB → fits L2 (256 KB)
 
 ### HNSW Algorithm
 
 **Insert** (build_ref.c):
 1. Assign random layer via geometric distribution (xorshift32 PRNG)
 2. Greedy descent through upper layers to target layer
-3. Brute-force collect top-16 candidates (2*M) from all existing nodes
+3. Beam search (ef_construction=64) on layer 0 to find candidates (O(log N))
 4. Diversity selection: keep candidate C only if `dot(query, C) > dot(S, C)` for all selected S
 5. Connect forward edges (new node -> selected neighbors)
 6. Connect reverse edges with replacement when full

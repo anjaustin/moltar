@@ -13,13 +13,13 @@ Embedded AI inference on a $99 phone. Custom llama.cpp kernels, ColBERT RAG pipe
 | LFM2-700M | Q4_0 | 423 MiB | **33.0** |
 | LFM2-1.2B | Q4_0 | 661 MiB | **21.3** |
 
-**Vector database** — HNSW search with NEON int8 dot products, split storage layout:
+**Semantic working memory** — HNSW search with NEON int8 dot products, L-cache-resident:
 
 | N nodes | Search latency | QPS | Recall@5 | Working set |
 |---------|---------------|-----|----------|-------------|
-| 256 | 19.4 us | 51K | 99.6% | 24 KB (L1D) |
-| 512 | 23.5 us | 42K | 94.4% | 48 KB (L1D) |
-| 1024 | 24.3 us | 41K | 84.8% | 96 KB (L2) |
+| 256 | 19.4 us | 51K | 99.6% | 32 KB (L1D) |
+| 512 | 23.5 us | 42K | 94.4% | 64 KB (L1D/L2) |
+| 1024 | 24.3 us | 41K | 84.8% | 128 KB (L2) |
 
 **On-device RAG** — ColBERT late-interaction retrieval + LLM generation:
 
@@ -61,7 +61,7 @@ moltar/
 │   │   ├── moltar_rag.sh      # RAG orchestrator (ingest, query, demo)
 │   │   ├── test_colbert.c     # Correctness tests + benchmark
 │   │   └── knowledge/         # Sample knowledge base
-│   └── lcvdb/                  # L-Cache Vector Database
+│   └── lcvdb/                  # L-Cache VDB (semantic working memory)
 │       ├── lcvdb.h             # Split storage structs + API
 │       ├── distance.S          # NEON int8 dot products (overflow-safe)
 │       ├── init_ref.c          # C reference init
@@ -129,7 +129,7 @@ adb shell "su -c 'sh /data/local/tmp/moltar_rag.sh demo'"
 
 2. **Row-scaled quantization** — Custom Q4_0/Q8_0 block formats aligned to 64-byte cache lines, with pure-integer SDOT accumulation and power-of-2 shift activation quantization.
 
-3. **Split storage for VDB** — Separating topology (32 bytes/node) from vectors (64 bytes/node) keeps the graph structure in L1D cache during traversal. At N=256, the full topology is 8 KB.
+3. **Split storage for VDB** — Separating topology (64 bytes/node, M=16) from vectors (64 bytes/node) keeps the graph structure in L1D cache during traversal. At N=256, total working set is 32 KB.
 
 4. **ColBERT late interaction for on-device RAG** — Per-token 128D embeddings with MaxSim scoring provide better retrieval than single-vector models. Full RAG pipeline (embed + search + generate) completes in ~2 seconds.
 

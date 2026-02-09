@@ -55,7 +55,7 @@ The single biggest gain was discovering that Android framework processes consume
 
 ## L-Cache Vector Database
 
-HNSW graph search with NEON int8 dot products. Split storage layout: topology (32 bytes/node) separate from vectors (64 bytes/node).
+HNSW graph search with NEON int8 dot products. Split storage layout: topology (64 bytes/node, M=16) separate from vectors (64 bytes/node). Total: 128 bytes/node.
 
 ### Search Latency
 
@@ -81,7 +81,7 @@ Note: k value barely affects latency — beam search dominates, not output copy.
 | 512 | 88% (44/50) | 94.4% (236/250) | 94.0% (470/500) |
 | 1024 | 84% (42/50) | 84.8% (212/250) | 81.2% (406/500) |
 
-Recall drop at N>=512 is caused by brute-force candidate collection during insert (CAND_MAX=16). This will be fixed by using HNSW beam search during insert (see PRD.md).
+**Note**: build_ref.c now uses HNSW beam search during insert (not brute-force). These recall numbers may be stale (pre-fix). Re-benchmark needed. If recall is still low at large N, likely causes are sparse upper layers (P(layer>=1) = 1/8 vs standard 1/3) and aggressive diversity pruning (>= threshold).
 
 ### Build Time
 
@@ -94,17 +94,17 @@ Recall drop at N>=512 is caused by brute-force candidate collection during inser
 | 512 | 6.8 ms | 13,365 ns |
 | 1024 | 23.6 ms | 22,999 ns |
 
-Build is O(N^2) due to brute-force candidate scan. Same fix as recall: HNSW search during insert.
+**Note**: build_ref.c now uses HNSW beam search during insert (O(log N) per node). These build times may be stale. Additionally, build still uses scalar C dot products — switching to NEON (`lcvdb_dot_i8`) would give ~3x speedup on the distance computation path.
 
 ### Memory Budget (Split Storage)
 
-| N | Topology | Vectors | Total | Fits in |
+| N | Topology (64B/node) | Vectors (64B/node) | Total | Fits in |
 |---|----------|---------|-------|---------|
-| 256 | 8 KB | 16 KB | 24 KB | L1D (64 KB) |
-| 512 | 16 KB | 32 KB | 48 KB | L1D |
-| 1024 | 32 KB | 64 KB | 96 KB | L2 (256 KB) |
-| 4096 | 128 KB | 256 KB | 384 KB | L2/L3 |
-| 65534 | 2 MB | 4 MB | 6 MB | DRAM |
+| 256 | 16 KB | 16 KB | 32 KB | L1D (64 KB) |
+| 512 | 32 KB | 32 KB | 64 KB | L1D/L2 |
+| 1024 | 64 KB | 64 KB | 128 KB | L2 (256 KB) |
+| 4096 | 256 KB | 256 KB | 512 KB | L2/L3 |
+| 65534 | 4 MB | 4 MB | 8 MB | DRAM |
 
 During search, only topology is traversed continuously. Vectors are loaded on-demand for distance computation. Effective hot working set = topology array only.
 

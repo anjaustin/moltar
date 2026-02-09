@@ -2,7 +2,7 @@
 
 ## What Moltar Is
 
-Moltar is an embedded AI platform for running LLM inference on a **Motorola Moto G Power 5G (2023)** — a $99 phone with a MediaTek Dimensity 930 SoC. The goal is maximum tokens-per-second for Liquid AI's LFM2 models, plus on-device retrieval-augmented generation (RAG) using ColBERT late-interaction embeddings.
+Moltar is an embedded AI platform for running LLM inference on a **Motorola Moto G Power 5G (2023)** — a $99 phone with a MediaTek Dimensity 930 SoC. Three memory layers on one device: **LCVDB** for microsecond working memory (conversation recall, entity tracking), **ColBERT** for millisecond knowledge retrieval (document search), and **LFM2** for generation at 21-77 tok/s. Everything runs on 2x Cortex-A78 cores.
 
 **Target device**: Motorola Moto G Power 5G 2023 (codename `devonn`, SKU `XT2311-4`)
 - **SoC**: MediaTek MT6855V / Dimensity 930
@@ -77,32 +77,42 @@ On-device retrieval-augmented generation using **LFM2-ColBERT-350M** for late-in
 
 **Note**: The two models run sequentially (not enough RAM for both + KV cache simultaneously).
 
-### L-Cache VDB (`research/lcvdb/`)
+### L-Cache VDB (`research/lcvdb/`) — Semantic Memory Layer
 
-A vector database engine targeting CPU L-cache residency. HNSW graph search with NEON assembly distance functions. Split storage design (separate topology + vector arrays). **Not used by the ColBERT RAG pipeline** — ColBERT uses per-token 128D embeddings with MaxSim scoring, which is architecturally different from single-vector HNSW search.
+A cache-resident HNSW vector database designed for sub-25 us associative lookup. Split storage (separate topology + vector arrays), NEON assembly distance functions, 48D int8 embeddings.
 
-**Architecture** (split storage, current):
-- **Topology array** (`lcvdb_topo_t`, 32 bytes/node): graph edges, neighbor IDs (uint16 x 8), flags, payload_id
-- **Vector array** (`lcvdb_vec_t`, 64 bytes/node): 48D int8 embeddings
-- **uint16 IDs**: max 65534 nodes (up from 256 with old uint8 layout)
+**Role**: LCVDB is not a document retrieval engine — ColBERT handles that. LCVDB is a **semantic register file**: a fast, small, dynamic index for working memory. Natural use cases:
+- **Conversation memory**: embed each turn, recall related prior context during generation
+- **Entity tracking**: "have we discussed this entity before?" at 436K QPS
+- **Agent working memory**: index intermediate reasoning steps for self-referential retrieval
+- **Semantic deduplication**: detect near-duplicate inputs in real-time
+
+These workloads require small N (64-512), continuous inserts, instant lookups, and coarse semantic matching — exactly where LCVDB operates.
+
+**Architecture** (split storage, M=16):
+- **Topology array** (`lcvdb_topo_t`, 64 bytes/node = 1 cache line): 16 neighbor IDs (uint16), count, layer, flags, payload_id
+- **Vector array** (`lcvdb_vec_t`, 64 bytes/node = 1 cache line): 48D int8 embeddings + 16 bytes padding
+- **uint16 IDs**: max 65534 nodes (0xFFFF = invalid sentinel)
 - **Tombstone delete**: flag in topology, skipped during search
 
 **Performance** (A78 @ 2.2 GHz, split storage):
 
-| N | Search (ns) | QPS | Recall@5 | Topo | Vec | Total |
-|---|------------|-----|----------|------|-----|-------|
-| 32 | 2,291 | 436K | 100% | 1 KB | 2 KB | 3 KB |
-| 64 | 6,060 | 165K | 100% | 2 KB | 4 KB | 6 KB |
-| 128 | 12,505 | 80K | 100% | 4 KB | 8 KB | 12 KB |
-| 256 | 19,415 | 51K | 99.6% | 8 KB | 16 KB | 24 KB |
-| 512 | 23,488 | 42K | 94.4% | 16 KB | 32 KB | 48 KB |
-| 1024 | 24,272 | 41K | 84.8% | 32 KB | 64 KB | 96 KB |
+| N | Search (ns) | QPS | Recall@5 | Topo | Vec | Total | Fits in |
+|---|------------|-----|----------|------|-----|-------|---------|
+| 32 | 2,291 | 436K | 100% | 2 KB | 2 KB | 4 KB | L1D |
+| 64 | 6,060 | 165K | 100% | 4 KB | 4 KB | 8 KB | L1D |
+| 128 | 12,505 | 80K | 100% | 8 KB | 8 KB | 16 KB | L1D |
+| 256 | 19,415 | 51K | 99.6% | 16 KB | 16 KB | 32 KB | L1D (64 KB) |
+| 512 | 23,488 | 42K | 94.4% | 32 KB | 32 KB | 64 KB | L1D/L2 |
+| 1024 | 24,272 | 41K | 84.8% | 64 KB | 64 KB | 128 KB | L2 (256 KB) |
+
+**Note**: Recall numbers may be stale (pre-beam-search-fix). Re-benchmark needed. build_ref.c now uses HNSW beam search during insert (O(log N)) instead of brute-force O(N) scan.
 
 **Files**:
 - `lcvdb.h` — split storage structs and API
 - `distance.S` — NEON int8 dot products (overflow-safe, per-chunk widening)
 - `init_ref.c` — C reference initialization
-- `build_ref.c` — C reference HNSW insert with diversity heuristic
+- `build_ref.c` — C reference HNSW insert with beam search + diversity heuristic
 - `search_ref.c` — C reference beam search (NEON dot products via distance.S)
 - `init.S`, `build.S`, `search.S` — old assembly (pre-split-storage, not in use)
 
@@ -110,16 +120,58 @@ A vector database engine targeting CPU L-cache residency. HNSW graph search with
 
 ## Next Steps
 
-### P0 — RAG: Knowledge Base Expansion + Quality
+### P0 — Memory Architecture: Three-Layer System
 
-**Status**: ColBERT RAG pipeline works end-to-end. Current knowledge base is a single file (`knowledge/moltar.txt`, 10 chunks). Next steps:
+**Vision**: Three timescales of memory on a $99 phone.
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  LCVDB (Working Memory)     19 us    N=64-512   L1D     │
+│  Conversation turns, entities, agent state               │
+├──────────────────────────────────────────────────────────┤
+│  ColBERT (Knowledge Memory) 80 ms    N=10-1000  DRAM    │
+│  Document retrieval, persistent knowledge base           │
+├──────────────────────────────────────────────────────────┤
+│  LFM2-1.2B (Generation)    21 tok/s  661 MiB    DRAM    │
+│  Prompt with merged working + knowledge context          │
+└──────────────────────────────────────────────────────────┘
+```
+
+**Work**:
+1. **Embedding pipeline for LCVDB**: Produce 48D int8 vectors from LFM2 hidden states during generation via random projection. The 1536D hidden states already exist; a fixed 1536x48 int8 projection matrix (73 KB) reduces them to 48D. Zero additional model loading.
+2. **Conversation memory integration**: Insert each conversation turn into LCVDB after generation. Before generating, search LCVDB for top-3 related prior turns and inject into prompt alongside ColBERT knowledge context.
+3. **Context merging**: Design prompt template that combines LCVDB working memory (recent related turns) with ColBERT knowledge retrieval (relevant documents).
+
+**Acceptance criteria**:
+- 48D int8 embeddings produced from LFM2 hidden states during generation
+- Conversation turns inserted into LCVDB in <50 us
+- Top-3 related prior turns retrieved in <25 us
+- Total memory overhead: <64 KB for 256 turns (fits L1D)
+- Improved coherence on multi-turn conversations vs no working memory
+
+### P0 — LCVDB: Re-Benchmark + Quick Fixes
+
+**Problem**: Documentation numbers may be stale (pre-beam-search-fix). Topo memory sizes were wrong in all docs (listed as 32B/node, actual is 64B/node with M=16).
+
+**Work**:
+1. Build and push `test_recall` to device, compare with documented numbers
+2. Switch build_ref.c from scalar `dot_i8()` to `lcvdb_dot_i8` (NEON) — one-line change, ~3x build speedup
+3. Document corrections already applied (this session)
+
+**Acceptance criteria**:
+- Fresh recall numbers at N=32..1024 with current build_ref.c (beam search)
+- Build uses NEON dot product
+- All doc memory numbers reflect 64B/node topo (corrected)
+
+### P1 — RAG: Knowledge Base Expansion + Quality
+
+**Status**: ColBERT RAG pipeline works end-to-end. Current knowledge base is a single file (`knowledge/moltar.txt`, 10 chunks).
 
 **Work**:
 - Expand knowledge base with more documents/domains
 - Evaluate retrieval quality with diverse queries
 - Tune chunk size and overlap for better context
-- Benchmark MaxSim scaling at 100+ chunks (currently brute-force, O(N))
-- Consider GPU-accelerated MaxSim for large indices
+- Benchmark MaxSim scaling at 100+ chunks
 
 **Acceptance criteria**:
 - Coherent, grounded answers across multiple knowledge domains
@@ -135,48 +187,41 @@ A vector database engine targeting CPU L-cache residency. HNSW graph search with
 - Test thinking/reasoning traces
 - Integrate with RAG pipeline as generation model
 
-### P1 — LLM: Further Bandwidth Optimization
+### P2 — LLM: Further Bandwidth Optimization
 
 **Current bottleneck**: DRAM bandwidth. At 15.5 GB/s sustained, a 661 MiB model reads at ~21 tok/s. The only way to go faster is to reduce bytes read per token.
 
 **Options**:
-- **Q3_0 or Q2_0 quantization**: Lower bits per weight, but quality drops. Need to measure LFM2 quality at Q3.
 - **Speculative decoding**: Use LFM2-350M as draft model, LFM2-1.2B as verifier. If acceptance rate is high, effective throughput could increase 2-3x.
+- **Q3_0 or Q2_0 quantization**: Lower bits per weight, but quality drops. Need to measure LFM2 quality at Q3.
 - **KV cache quantization**: Reduce KV cache memory to keep more in cache.
-- **Sliding window attention**: LFM2 uses SSM (state-space), not attention — already has O(1) state. This may already be optimal.
 
-### P2 — VDB: Fix Recall at Large N
+### P2 — LCVDB: Recall Fix at Large N (if needed)
 
-**Problem**: LCVDB recall drops from 99.6% at N=256 to 84.8% at N=512. Not currently blocking (ColBERT RAG uses brute-force MaxSim, not HNSW), but needed if LCVDB is used for other retrieval tasks.
+**Problem**: If re-benchmark confirms recall <95% at N=512+, two likely causes:
+1. **Sparse upper layers**: P(layer>=1) = 1/8 vs standard HNSW's ~1/3. Fix: change PRNG layer assignment.
+2. **Aggressive diversity**: `>=` threshold over-prunes edges. Fix: relax to `>`.
 
-**Fix**: Replace brute-force candidate collection with HNSW beam search during insert.
+These only matter if LCVDB takes on workloads at N>512. For working memory (N=64-512), current recall is 94-100%.
 
-**Acceptance criteria**:
-- recall@5 >= 95% at N=1024
-- 100% graph reachability at all N
+### P3 — GPU Async Search/Scoring
 
-### P2 — VDB: GPU Async Search
-
-**Problem**: When the CPU is running LLM inference (which saturates both A78 cores), VDB searches block. The PowerVR GPU sits idle during token generation.
-
-**Opportunity**: Dispatch VDB search or MaxSim scoring to GPU via OpenCL while CPU does LLM inference. GPU dispatch overhead is ~40 us (too slow for standalone use), but if overlapped with a 12-50 ms token generation step, the latency is free.
-
-**Design**:
-- OpenCL kernel for int8 dot product already written and verified (`gpu_dot.cl`)
-- GPU probe confirms: 128-wide SIMD, 28 KB local mem, OpenCL 3.0
-- Implement: enqueue search before LLM token gen, read results after
-- CPU remains primary path for standalone queries
+Dispatch LCVDB search or ColBERT MaxSim to GPU via OpenCL while CPU does LLM inference. GPU dispatch overhead is ~40 us (free when overlapped with 12-50 ms token generation).
 
 ### P3 — Multi-Device Support
 
-Moltar currently targets exactly one phone. Future devices to consider:
+Moltar currently targets exactly one phone. Future devices:
 - Other MediaTek Dimensity phones (similar ISA, different cache sizes)
-- Snapdragon devices (Hexagon DSP available, different NEON extensions)
-- Raspberry Pi 5 (Cortex-A76, similar ISA, useful for development)
+- Snapdragon devices (Hexagon DSP, different NEON extensions)
+- Raspberry Pi 5 (Cortex-A76, useful for development)
 
 ### Completed
 
-- **P2 — Integration: LLM + RAG Pipeline** — DONE. Implemented using ColBERT late-interaction retrieval (not LCVDB HNSW). See ColBERT RAG section above.
+- **P2 — Integration: LLM + RAG Pipeline** — DONE. Implemented using ColBERT late-interaction retrieval. See ColBERT RAG section above.
+
+### Lincoln Manifold Analysis
+
+Full exploration of LCVDB's role and architecture in `journal/scratchpad/lcvdb_{raw,nodes,reflect,synth}.md`. Key insight: LCVDB was miscast as a document retrieval engine. Its architecture (sub-25 us, L1D-resident, 48D coarse embeddings) maps to working memory, not knowledge retrieval. ColBERT and LCVDB serve different memory timescales, not competing use cases.
 
 ---
 

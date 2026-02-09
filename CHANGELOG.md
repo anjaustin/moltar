@@ -19,10 +19,12 @@
 - **`--no-repack` workaround** removed from RAG pipeline after cache fix
 
 ### Changed
-- **PRD.md** — added ColBERT RAG section, corrected benchmarks, updated priorities (P2 Integration marked DONE), added cache bug to Dead Ends
-- **PERFORMANCE.md** — corrected LLM numbers, added ColBERT RAG latency section
-- **ARCHITECTURE.md** — added ColBERT RAG architecture section
-- **README.md** — added RAG pipeline, corrected benchmark numbers, updated repo structure
+- **LCVDB reframing** — Lincoln Manifold analysis (journal/scratchpad/lcvdb_{raw,nodes,reflect,synth}.md) identified LCVDB as a semantic working memory layer, not a document retrieval engine. ColBERT handles knowledge retrieval; LCVDB handles conversation memory, entity tracking, agent state.
+- **Memory budget correction** — all docs referenced 32B/node topology (from M=8 era). Actual struct is 64B/node (M=16). All memory tables corrected: N=256 is 32 KB total (was 24 KB), N=1024 is 128 KB (was 96 KB). Conclusions unchanged — still fits in cache.
+- **PRD.md** — reframed LCVDB as semantic memory layer, three-layer memory architecture (LCVDB working memory + ColBERT knowledge + LFM2 generation), corrected benchmarks, new P0 priorities
+- **PERFORMANCE.md** — corrected memory budget tables, noted recall/build numbers may be stale (post-beam-search-fix)
+- **ARCHITECTURE.md** — corrected topo diagram (M=16 not M=8), reframed LCVDB role, updated insert algorithm description
+- **README.md** — corrected working set sizes, reframed VDB as semantic working memory
 
 ### Verified on Device
 - ColBERT RAG end-to-end: embed query (~66 ms) + MaxSim search (~15 ms) + LLM generate (~2 s for short answer)
@@ -35,7 +37,7 @@
 ## Previous — L-Cache VDB Split Storage
 
 ### Added
-- **L-Cache VDB split storage redesign** — separate topology (32B/node) and vector (64B/node) arrays, uint16 IDs (max 65534 nodes), tombstone delete, payload IDs
+- **L-Cache VDB split storage redesign** — separate topology (64B/node, M=16) and vector (64B/node) arrays, uint16 IDs (max 65534 nodes), tombstone delete, payload IDs
 - **C reference implementations** — `init_ref.c`, `build_ref.c`, `search_ref.c` replace old assembly for split storage layout
 - **VDB test suite** — `test_lcvdb.c` (7 correctness tests), `test_recall.c` (N=32..1024), `test_bench.c` (latency + throughput)
 - **PRD.md** — product requirements with current state, prioritized next steps, acceptance criteria
