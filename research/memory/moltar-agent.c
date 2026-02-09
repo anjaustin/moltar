@@ -76,6 +76,73 @@ static void      *vec_buf;
 
 static moltar_proj_t proj;
 
+/* ---------- Session Persistence ---------- */
+
+#define SESSION_MAGIC   0x4D4F4C54  /* "MOLT" */
+#define SESSION_VERSION 1
+
+/* Save session state (LCVDB + turns) to a binary file.
+ * Format: [magic][version][n_turns][vdb scalars][topo][vec][turns] */
+static int session_save(const char *path) {
+    FILE *f = fopen(path, "wb");
+    if (!f) return -1;
+
+    uint32_t magic = SESSION_MAGIC;
+    uint32_t version = SESSION_VERSION;
+    uint32_t nt = (uint32_t)n_turns;
+
+    fwrite(&magic, 4, 1, f);
+    fwrite(&version, 4, 1, f);
+    fwrite(&nt, 4, 1, f);
+
+    /* Write LCVDB scalar state (first 32 bytes: node_count..prng_state) */
+    fwrite(&vdb, 32, 1, f);
+
+    /* Write topology and vector arrays (only used slots) */
+    fwrite(topo_buf, sizeof(lcvdb_topo_t), nt, f);
+    fwrite(vec_buf, sizeof(lcvdb_vec_t), nt, f);
+
+    /* Write turn text */
+    fwrite(turns, sizeof(turn_t), nt, f);
+
+    fclose(f);
+    return 0;
+}
+
+/* Load session state from a binary file. Returns 0 on success, -1 on error. */
+static int session_load(const char *path) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return -1;
+
+    uint32_t magic, version, nt;
+    if (fread(&magic, 4, 1, f) != 1 || magic != SESSION_MAGIC) {
+        fclose(f); return -1;
+    }
+    if (fread(&version, 4, 1, f) != 1 || version != SESSION_VERSION) {
+        fclose(f); return -1;
+    }
+    if (fread(&nt, 4, 1, f) != 1 || nt > MAX_TURNS) {
+        fclose(f); return -1;
+    }
+
+    /* Read LCVDB scalar state (32 bytes), then restore pointers */
+    fread(&vdb, 32, 1, f);
+    vdb.topo_array = (lcvdb_topo_t *)topo_buf;
+    vdb.vec_array  = (lcvdb_vec_t *)vec_buf;
+    vdb.max_nodes  = MAX_TURNS;
+
+    /* Read topology and vector arrays */
+    fread(topo_buf, sizeof(lcvdb_topo_t), nt, f);
+    fread(vec_buf, sizeof(lcvdb_vec_t), nt, f);
+
+    /* Read turn text */
+    fread(turns, sizeof(turn_t), nt, f);
+    n_turns = (int)nt;
+
+    fclose(f);
+    return 0;
+}
+
 /* ---------- RAG Configuration ---------- */
 
 typedef struct {
@@ -244,11 +311,14 @@ static void print_usage(const char *argv0) {
         "  --rag        enable ColBERT knowledge retrieval\n"
         "  --no-rag     disable ColBERT knowledge retrieval (default)\n"
         "  --rag-index DIR  RAG index directory (default: %s)\n"
+        "  --session FILE   session file for persistent memory\n"
         "\n"
         "Commands (during conversation):\n"
         "  /memory      show working memory status\n"
         "  /rag         toggle RAG on/off\n"
         "  /rag status  show RAG configuration\n"
+        "  /save        save session to file (requires --session)\n"
+        "  /load        reload session from file (requires --session)\n"
         "\n"
         "Runs a multi-turn conversation with three-layer memory.\n"
         "Type your message and press Enter. Ctrl-D or 'quit' to exit.\n",
@@ -357,6 +427,7 @@ int main(int argc, char **argv) {
     int top_k       = 40;
     float top_p     = 0.9f;
     int use_memory  = 1;
+    const char *session_path = NULL;  /* --session FILE for persistence */
 
     /* RAG defaults */
     rag_cfg.enabled = 0;
@@ -389,6 +460,8 @@ int main(int argc, char **argv) {
             rag_cfg.enabled = 0;
         else if (strcmp(argv[i], "--rag-index") == 0 && i + 1 < argc)
             strncpy(rag_cfg.index_dir, argv[++i], sizeof(rag_cfg.index_dir));
+        else if (strcmp(argv[i], "--session") == 0 && i + 1 < argc)
+            session_path = argv[++i];
         else {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
             print_usage(argv[0]);
@@ -471,6 +544,17 @@ int main(int argc, char **argv) {
 
         fprintf(stderr, "[moltar] Projection: %dD -> 48D int8 (%.1f KB matrix)\n",
                 n_embd, (float)(48 * n_embd) / 1024.0f);
+
+        /* Restore session if file exists */
+        if (session_path) {
+            if (session_load(session_path) == 0) {
+                fprintf(stderr, "[moltar] Session restored: %d turns from %s\n",
+                        n_turns, session_path);
+            } else {
+                fprintf(stderr, "[moltar] No existing session at %s (starting fresh)\n",
+                        session_path);
+            }
+        }
     }
 
     /* ---------- Token buffers ---------- */
@@ -481,9 +565,10 @@ int main(int argc, char **argv) {
     char knowledge_buf[MAX_KNOWLEDGE];
 
     fprintf(stderr, "[moltar] Ready. Type your message (Ctrl-D or 'quit' to exit).\n");
-    fprintf(stderr, "[moltar] Memory: %s | RAG: %s | Threads: %d | Temp: %.1f\n\n",
+    fprintf(stderr, "[moltar] Memory: %s | RAG: %s | Session: %s | Threads: %d | Temp: %.1f\n\n",
             use_memory ? "ON" : "OFF",
             rag_cfg.enabled ? "ON" : "OFF",
+            session_path ? session_path : "none",
             n_threads, temp);
 
     /* ---------- Conversation loop ---------- */
@@ -529,6 +614,26 @@ int main(int argc, char **argv) {
                     rag_cfg.index_dir, rag_cfg.n_chunks);
             fprintf(stdout, "  ColBERT: %s\n", rag_cfg.colbert_model);
             fprintf(stdout, "  Top-K: %d\n", rag_cfg.top_k);
+            continue;
+        }
+        if (strcmp(input_buf, "/save") == 0) {
+            if (!session_path) {
+                fprintf(stdout, "No session file configured. Use --session FILE\n");
+            } else if (session_save(session_path) == 0) {
+                fprintf(stdout, "Session saved: %d turns -> %s\n", n_turns, session_path);
+            } else {
+                fprintf(stdout, "ERROR: failed to save session to %s\n", session_path);
+            }
+            continue;
+        }
+        if (strcmp(input_buf, "/load") == 0) {
+            if (!session_path) {
+                fprintf(stdout, "No session file configured. Use --session FILE\n");
+            } else if (session_load(session_path) == 0) {
+                fprintf(stdout, "Session loaded: %d turns from %s\n", n_turns, session_path);
+            } else {
+                fprintf(stdout, "ERROR: failed to load session from %s\n", session_path);
+            }
             continue;
         }
 
@@ -637,6 +742,17 @@ int main(int argc, char **argv) {
 
     /* ---------- Cleanup ---------- */
     fprintf(stderr, "\n[moltar] Session: %d turns\n", n_turns);
+
+    /* Auto-save session on exit */
+    if (session_path && use_memory && n_turns > 0) {
+        if (session_save(session_path) == 0) {
+            fprintf(stderr, "[moltar] Session saved: %d turns -> %s\n",
+                    n_turns, session_path);
+        } else {
+            fprintf(stderr, "[moltar] WARN: failed to save session to %s\n",
+                    session_path);
+        }
+    }
 
     free(prompt_tokens);
     free(prompt_buf);
