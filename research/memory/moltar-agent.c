@@ -116,7 +116,8 @@ static int rag_load_manifest(rag_config_t *cfg) {
  * The OS handles memory pressure via mmap page eviction/fault-in.
  */
 static int rag_retrieve(const rag_config_t *cfg, const char *query,
-                        char *out_buf, int out_max) {
+                        char *out_buf, int out_max,
+                        const char *llm_model_path) {
     if (!cfg->enabled || cfg->n_chunks <= 0) return 0;
 
     char cmd[2048];
@@ -152,6 +153,17 @@ static int rag_retrieve(const rag_config_t *cfg, const char *query,
     if (ret != 0) {
         fprintf(stderr, "[rag] WARN: embedding failed (ret=%d)\n", ret);
         return 0;
+    }
+
+    /* Prefetch LLM model pages back into page cache.
+     * The ColBERT subprocess likely evicted LFM2 mmap pages. Start
+     * a background cat to /dev/null to fault them back in while we
+     * do the MaxSim search. This overlaps I/O with computation. */
+    if (llm_model_path) {
+        snprintf(cmd, sizeof(cmd),
+            "cat %s > /dev/null 2>/dev/null &", llm_model_path);
+        system(cmd);
+        fprintf(stderr, "[rag] Prefetching LLM model pages...\n");
     }
 
     /* Step 2: MaxSim search */
@@ -523,7 +535,8 @@ int main(int argc, char **argv) {
         /* ---------- ColBERT knowledge retrieval ---------- */
         knowledge_buf[0] = '\0';
         if (rag_cfg.enabled) {
-            rag_retrieve(&rag_cfg, input_buf, knowledge_buf, MAX_KNOWLEDGE);
+            rag_retrieve(&rag_cfg, input_buf, knowledge_buf, MAX_KNOWLEDGE,
+                        model_path);
         }
 
         /* Build prompt with working memory + knowledge context */
