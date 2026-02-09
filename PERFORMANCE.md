@@ -114,22 +114,51 @@ During search, only topology is traversed continuously. Vectors are loaded on-de
 
 End-to-end on-device retrieval-augmented generation using LFM2-ColBERT-350M (Q4_0, 209 MB) for embedding and LFM2-1.2B (Q4_0, 661 MB) for generation.
 
-### Latency Budget
+### Latency Budget (standalone pipeline via `moltar_rag.sh`)
 
 | Step | Time | Notes |
 |------|------|-------|
 | Embed query (8-15 tokens) | ~66 ms | LFM2-ColBERT-350M Q4_0 |
 | MaxSim search (10 chunks) | ~15 ms | Brute-force, NEON SDOT |
 | LLM generate (short answer) | ~1-2 s | LFM2-1.2B Q4_0, ~21 tok/s |
-| **Total (short answer)** | **~2 s** | |
+| **Total (short answer)** | **~2 s** | Both models cold-loaded sequentially |
 
-### MaxSim Scoring
+### Latency Budget (via `moltar-agent` with `--rag`)
 
-ColBERT uses late-interaction scoring: each query token's 128D embedding is dotted against all document token embeddings, taking the max per document token, then summing across query tokens.
+When RAG is triggered mid-conversation, the LFM2-1.2B model is already loaded. ColBERT embedding evicts LFM2 pages from the page cache. After search, the LFM2 pages must fault back in.
 
-- **NEON kernel**: `colbert_maxsim_i8` in `maxsim_neon.S` — uses SDOT for 128D int8 dot products
-- **Quantization**: float32 embeddings quantized to int8 per-vector (max-abs scaling)
-- **Scaling**: O(Q * D * T) where Q=query tokens, D=documents, T=avg tokens/doc. Currently brute-force over all documents.
+| Step | Time | Notes |
+|------|------|-------|
+| ColBERT embedding (cold, model load + embed) | ~0.9 s | Subprocess: `llama-embedding` |
+| Background LFM2 prefetch (overlapped) | — | `cat model.gguf > /dev/null &` |
+| Variance-weighted MaxSim search (10 chunks) | ~16 ms | `moltar_rag search` |
+| LFM2-1.2B reload (mmap fault-in) | ~4-5 s | Partially hidden by prefetch |
+| Prompt processing (~220 tokens) | ~2.4 s | |
+| Generation (~60 tokens) | ~2.9 s | |
+| **Total (RAG-enabled query)** | **~10-14 s** | Dominated by model swap I/O |
+
+**Without RAG**: ~5.6 s per query (no model swap overhead).
+
+### Variance-Weighted MaxSim Scoring
+
+Standard MaxSim treats all query tokens equally. On small corpora, common tokens dominate. `moltar_rag.c` implements variance-weighted mean-centered MaxSim:
+
+1. **Mean-centering**: Per query token, subtract mean score across chunks. Common tokens contribute ~0.
+2. **Variance weighting**: Weight each token by `stdev/max_stdev`. Distinctive tokens get full weight.
+3. **Length normalization**: Divide by `sqrt(n_doc_tokens)`.
+
+**Retrieval quality** (10-chunk corpus):
+| Query | Standard MaxSim | Weighted MaxSim |
+|-------|----------------|-----------------|
+| Speed (want chunk 1) | chunk 1 at #3 | **chunk 1 at #1** |
+| ColBERT (want chunk 5) | chunk 5 at #1 | chunk 5 at #1 (bigger margin) |
+| GPU (want chunk 6) | chunk 6 at #4 | chunk 6 at #3 |
+
+### NEON Kernel
+
+- `colbert_maxsim_i8` in `maxsim_neon.S` — uses SDOT for 128D int8 dot products
+- Quantization: float32 embeddings quantized to int8 per-vector (max-abs scaling)
+- Scaling: O(Q * D * T) where Q=query tokens, D=documents, T=avg tokens/doc. Currently brute-force over all documents.
 
 ### ColBERT Correctness Tests (on device)
 

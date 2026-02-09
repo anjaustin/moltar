@@ -108,13 +108,31 @@ User query
 
 ### ColBERT Late Interaction
 
-Unlike single-vector embedding models, ColBERT produces **one 128D vector per token**. Scoring uses MaxSim:
+Unlike single-vector embedding models, ColBERT produces **one 128D vector per token**. Standard scoring uses MaxSim:
 
 ```
 score(Q, D) = Σ_q max_d (q · d)
 ```
 
-For each query token embedding `q`, find the maximum dot product against all document token embeddings `d`, then sum across query tokens. This captures fine-grained token-level semantic matching.
+For each query token embedding `q`, find the maximum dot product against all document token embeddings `d`, then sum across query tokens.
+
+### Variance-Weighted Mean-Centered MaxSim
+
+Standard MaxSim fails on small corpora because common tokens ("Moltar", "project", BOS) match well in every chunk, drowning out distinctive tokens. `moltar_rag.c` implements an improved scoring algorithm:
+
+```
+per_token[q][c] = max_j dot(q_i, chunk_c_j)       # Phase 1: decompose MaxSim
+mean_q          = avg_c(per_token[q][c])            # Phase 2: per-token statistics
+stdev_q         = stdev_c(per_token[q][c])
+weight_q        = stdev_q / max(stdev)              # high variance = distinctive token
+score(c)        = Σ_q weight_q * (per_token[q][c] - mean_q) / sqrt(n_doc_tokens_c)
+```
+
+1. **Mean-centering**: Common tokens that score similarly across all chunks contribute ~0 after subtraction.
+2. **Variance weighting**: Distinctive tokens (high cross-chunk variance) get full weight; common tokens and BOS get near-zero weight.
+3. **Length normalization**: `sqrt(n_doc_tokens)` compensates for longer documents having more matching opportunities.
+
+This is equivalent to learned IDF weighting applied to late interaction — tokens with uniform match patterns are implicitly downweighted.
 
 ### MaxSim Implementation
 
@@ -143,7 +161,7 @@ research/colbert/
 ├── colbert.c           # Init, quantize, add_doc, search
 ├── maxsim_neon.S       # NEON SDOT: colbert_dot_i8, colbert_maxsim_i8
 ├── test_colbert.c      # 4 correctness tests + benchmark
-├── moltar_rag.c        # Search binary (parses embeddings, runs MaxSim)
+├── moltar_rag.c        # Variance-weighted MaxSim search tool
 ├── moltar_rag.sh       # Shell orchestrator (ingest, query, demo)
 ├── knowledge/
 │   └── moltar.txt      # Sample knowledge base
@@ -278,11 +296,13 @@ User input
 
 The ColBERT model (209 MB) and LFM2-1.2B (661 MB) cannot coexist in RAM. `moltar-agent` shells out via `system()` to run embedding and search as subprocesses:
 
-1. **`llama-embedding`** loads ColBERT model via mmap, embeds query, writes `.emb` file, exits
-2. **`moltar_rag search`** reads query `.emb` + chunk `.emb` files, runs MaxSim, writes ranked results
-3. **`moltar-agent`** reads chunk `.txt` files for top-K results, injects as knowledge context
+1. **Write query to temp file** — user input is written to `/data/local/tmp/rag_query_agent.txt`, never passed on the command line. This prevents shell injection from metacharacters in user queries.
+2. **`llama-embedding -f <file>`** loads ColBERT model via mmap, embeds query from file, writes `.emb` file, exits
+3. **Background prefetch** — immediately after embedding exits, `cat model.gguf > /dev/null &` starts faulting LFM2 pages back into the page cache while MaxSim runs. Overlaps I/O with computation.
+4. **`moltar_rag search`** reads query `.emb` + chunk `.emb` files, runs variance-weighted MaxSim, writes ranked results
+5. **`moltar-agent`** reads chunk `.txt` files for top-K results, injects as knowledge context
 
-The OS handles memory pressure: when ColBERT loads, LFM2-1.2B pages get evicted from page cache. When generation starts, LFM2 pages fault back in (~4-5s reload). Total RAG overhead: ~5s per query (dominated by model swap).
+The OS handles memory pressure: when ColBERT loads, LFM2-1.2B pages get evicted from page cache. When generation starts, LFM2 pages fault back in (~4-5s reload, partially hidden by prefetch). Total RAG overhead: ~8s per query (dominated by model swap I/O).
 
 **End-to-end latency** (measured on device):
 
@@ -307,13 +327,15 @@ Johnson-Lindenstrauss projection from LFM2 hidden states to LCVDB vectors.
 
 ### `moltar-agent` (`moltar-agent.c`)
 
-The main integration binary. ~29 KB, dynamically linked against `libllama.so`, LCVDB compiled in statically.
+The main integration binary. ~31 KB, dynamically linked against `libllama.so`, LCVDB compiled in statically.
 
 - **Loads LFM2-1.2B** with `embeddings=true` via `llama_model_load_from_file` + `llama_init_from_model`
 - **Sampling**: configurable temperature, top-k, top-p (default: greedy)
 - **ChatML format**: `<|im_start|>system/user/assistant<|im_end|>` — matches LFM2 tokenizer chat template
 - **Working memory**: LCVDB search injects top-3 related prior turns into system message
-- **Knowledge retrieval**: optional ColBERT RAG via subprocess (`--rag` flag, `/rag` toggle)
+- **Knowledge retrieval**: optional ColBERT RAG via subprocess (`--rag` flag, `/rag` toggle). Variance-weighted MaxSim for retrieval quality. Query sanitization via temp file (no user input in shell commands).
+- **Session persistence**: `--session FILE` saves and restores LCVDB graph state + turn text across restarts. Auto-save on exit, auto-load on startup. `/save` and `/load` interactive commands. Binary format: `[magic "MOLT"][version 1][n_turns][vdb scalars 32B][topo array][vec array][turns array]`.
+- **Model prefetch**: background `cat` of LFM2 model file after ColBERT embedding exits, overlapping I/O with MaxSim computation
 - **Prompt structure**: system message + knowledge base (RAG) + relevant prior conversation (LCVDB) + recent turn + current user input
 - **Hidden state extraction**: `llama_get_embeddings_ith(ctx, -1)` after final token decode
 - **Memory storage**: projects hidden state → inserts into LCVDB → stores turn text for retrieval
@@ -324,7 +346,8 @@ The main integration binary. ~29 KB, dynamically linked against `libllama.so`, L
 research/memory/
 ├── project.h           # moltar_proj_t struct, init/apply API
 ├── project.c           # Rademacher projection + max-abs quantization
-├── moltar-agent.c      # Multi-turn agent: LFM2 + LCVDB working memory
+├── moltar-agent.c      # Three-layer memory agent: LFM2 + LCVDB + ColBERT RAG
+│                       #   session persistence, query sanitization, model prefetch
 ├── test_project.c      # 6 tests: init, determinism, JL, LCVDB roundtrip, latency
 └── Makefile            # test_project (GNU static) + moltar-agent (NDK dynamic)
 ```

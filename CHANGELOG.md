@@ -1,6 +1,99 @@
 # Changelog
 
-## [Unreleased]
+## 7445fc1 — Persistent session memory (2026-02-09)
+
+### Added
+- **Persistent session memory** (`moltar-agent.c`) — save/load LCVDB state + turn text across agent restarts
+  - `--session FILE` CLI flag: auto-load on startup, auto-save on exit
+  - `/save` and `/load` interactive commands for manual session management
+  - Binary format: `[magic "MOLT"][version 1][n_turns][vdb scalars 32B][topo array][vec array][turns array]`
+  - `session_save()` and `session_load()` functions with magic/version validation
+
+### Verified on Device
+- Two-session test: conversation with name/activity, quit, restart, agent correctly recalled "I'm Austin, and I'm building Moltar" from prior session
+- Turn counter continues across sessions (1→2 in session 1, 3 in session 2)
+- Auto-save on exit confirmed: `[moltar] Session saved: 2 turns -> /data/local/tmp/session.bin`
+
+## 2623788 — Background LFM2 model prefetch (2026-02-09)
+
+### Added
+- **Background prefetch** in `rag_retrieve()` — after ColBERT embedding subprocess exits, starts `cat model.gguf > /dev/null &` to fault LFM2 pages back into page cache while MaxSim search runs
+- Overlaps I/O (model reload) with computation (MaxSim search)
+
+### Changed
+- `rag_retrieve()` signature now accepts `const char *llm_model_path` parameter
+
+### Measured
+- RAG-enabled query latency: ~13.6 s with Android running (model swap I/O partially hidden)
+- Without RAG: ~5.6 s
+
+## b35b22c — Query sanitization (2026-02-09)
+
+### Fixed
+- **Shell injection vulnerability** in `moltar-agent.c` — user query was passed directly into `system()` via `-p "%s"`. Shell metacharacters (`"`, `$`, `` ` ``, `\`) could break the command or cause injection.
+- **Fix**: Query written to temp file (`/data/local/tmp/rag_query_agent.txt`), passed via `-f <file>` to `llama-embedding`. No user input ever touches the shell command string.
+- Tested with `"`, `$HOME`, `` `whoami` `` in query — works correctly.
+
+## 224a215 — Variance-weighted mean-centered MaxSim (2026-02-09)
+
+### Added
+- **Variance-weighted MaxSim** in `moltar_rag.c` — fixes RAG retrieval quality on small corpora
+  - Phase 1: Decompose MaxSim into per-token per-chunk max-dot scores
+  - Phase 2: Compute per-token mean and stdev across chunks
+  - Phase 3: Score = `Σ (stdev/max_stdev) * (score - mean) / sqrt(n_doc_tokens)`
+  - Common tokens (uniform scores) contribute ~0; distinctive tokens get full weight
+  - Length normalization via `sqrt(n_doc_tokens)` compensates for longer documents
+
+### Measured
+- Speed query (want chunk 1): #3 → **#1**
+- ColBERT query (want chunk 5): #1 → #1 (bigger margin)
+- GPU query (want chunk 6): #4 → #3
+- Agent now answers "21 tokens per second" (correct) instead of hallucinating
+
+## af767fd — Documentation update for ColBERT RAG (2026-02-09)
+
+### Changed
+- **PRD.md** — marked ColBERT RAG integration as DONE, added end-to-end latency breakdown table (10.5s total), updated completed milestones
+- **ARCHITECTURE.md** — added subprocess architecture section, ColBERT RAG pipeline diagram, model prefetch description, `--rag` flag documentation
+
+## e65a47d — ColBERT RAG integration in moltar-agent (2026-02-09)
+
+### Added
+- **ColBERT RAG in moltar-agent** — knowledge retrieval via subprocess calls to `llama-embedding` and `moltar_rag`
+  - `--rag` / `--no-rag` CLI flags
+  - `/rag` toggle and `/rag status` interactive commands
+  - `rag_retrieve()` function: embed query → MaxSim search → read chunk text → inject into prompt
+  - `rag_config_t` struct with configurable ColBERT model, embedding binary, search binary, index directory, top-K
+  - Manifest loading (`rag_load_manifest`) for chunk count
+
+### Verified on Device
+- RAG-grounded factual responses (e.g. "128-dimensional per-token embedding model released by Liquid AI")
+- Working memory + RAG coexistence confirmed
+- End-to-end latency: ~10.5 s (ColBERT embed ~0.9s + MaxSim ~15ms + model swap ~4-5s + prompt ~2.4s + generation ~2.9s)
+
+## 763ee59 — moltar-agent: three-layer memory integration (2026-02-09)
+
+### Added
+- **`moltar-agent`** (`research/memory/moltar-agent.c`) — multi-turn LLM with three-layer memory
+  - Links against `libllama.so` (LFM2 inference) + LCVDB (semantic working memory, compiled statically)
+  - Random projection of LFM2 hidden states (2048D float → 48D int8) via Rademacher matrix
+  - Per-turn cycle: LCVDB search → build ChatML prompt → LFM2 decode → extract hidden state → project → insert
+  - `/memory` interactive command for working memory status
+  - Configurable: `-t` threads, `-c` context, `-n` max tokens, `--temp`, `--top-k`, `--top-p`, `--no-memory`
+- **Projection layer** (`project.h`, `project.c`) — Johnson-Lindenstrauss random projection
+  - Rademacher {-1,+1} matrix, 96 KB (2048×48), deterministic seed 0x4D4F4C54
+  - 90 us latency on A78 @ 2.2 GHz
+  - 100% cluster ordering preservation in JL tests
+- **Projection tests** (`test_project.c`) — 6 tests: init, determinism, discrimination, JL distance, LCVDB roundtrip, latency
+- **Makefile** — `make agent` (NDK dynamic) + `make all` (GNU static test binary)
+
+### Verified on Device
+- 3-turn conversation with name recall, activity recall, and contextual responses
+- Total memory overhead per turn: ~113 us (90 us projection + 23 us search)
+
+---
+
+## [Previous — ColBERT RAG Pipeline + Cache Fix]
 
 ### Added
 - **ColBERT RAG pipeline** (`research/colbert/`) — on-device retrieval-augmented generation using LFM2-ColBERT-350M for late-interaction embeddings and LFM2-1.2B for generation
@@ -21,10 +114,6 @@
 ### Changed
 - **LCVDB reframing** — Lincoln Manifold analysis (journal/scratchpad/lcvdb_{raw,nodes,reflect,synth}.md) identified LCVDB as a semantic working memory layer, not a document retrieval engine. ColBERT handles knowledge retrieval; LCVDB handles conversation memory, entity tracking, agent state.
 - **Memory budget correction** — all docs referenced 32B/node topology (from M=8 era). Actual struct is 64B/node (M=16). All memory tables corrected: N=256 is 32 KB total (was 24 KB), N=1024 is 128 KB (was 96 KB). Conclusions unchanged — still fits in cache.
-- **PRD.md** — reframed LCVDB as semantic memory layer, three-layer memory architecture (LCVDB working memory + ColBERT knowledge + LFM2 generation), corrected benchmarks, new P0 priorities
-- **PERFORMANCE.md** — corrected memory budget tables, noted recall/build numbers may be stale (post-beam-search-fix)
-- **ARCHITECTURE.md** — corrected topo diagram (M=16 not M=8), reframed LCVDB role, updated insert algorithm description
-- **README.md** — corrected working set sizes, reframed VDB as semantic working memory
 
 ### Verified on Device
 - ColBERT RAG end-to-end: embed query (~66 ms) + MaxSim search (~15 ms) + LLM generate (~2 s for short answer)

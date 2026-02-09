@@ -140,8 +140,8 @@ Three timescales of memory on a $99 phone, fully integrated and verified on devi
 
 **Implementation** (`research/memory/`):
 1. **Random projection**: Rademacher {-1,+1} matrix (96 KB for 2048x48), projects LFM2-1.2B hidden states (2048D float) to 48D int8 in **90 us**. Deterministic seed `0x4D4F4C54`. 100% cluster ordering preservation in JL distance tests.
-2. **`moltar-agent`**: C program (24 KB, NDK-built) linking `libllama.so` + LCVDB. Loads LFM2-1.2B with `embeddings=true`, runs multi-turn conversation with ChatML prompt format. Each turn: search LCVDB → inject context → generate → extract hidden state → project → insert into LCVDB.
-3. **Verified on device**: 3-turn conversation with name recall, activity recall, and contextual responses. Total memory overhead per turn: ~113 us (90 us projection + 23 us search).
+2. **`moltar-agent`**: C program (~31 KB, NDK-built) linking `libllama.so` + LCVDB. Loads LFM2-1.2B with `embeddings=true`, runs multi-turn conversation with ChatML prompt format. Each turn: search LCVDB → inject context → (optionally) ColBERT RAG → generate → extract hidden state → project → insert into LCVDB. Supports `--session FILE` for persistent memory across restarts, `--rag` for knowledge retrieval, and `/save`/`/load`/`/memory`/`/rag` interactive commands.
+3. **Verified on device**: Multi-session conversation with name recall across restarts. RAG-grounded factual answers. Total memory overhead per turn: ~113 us (90 us projection + 23 us search).
 
 **Acceptance criteria** — all met:
 - 48D int8 embeddings produced from LFM2 hidden states: **YES** (via `llama_get_embeddings_ith(-1)` + `moltar_proj_apply`)
@@ -179,12 +179,54 @@ Confirmed: documented recall numbers were stale (pre-beam-search-fix). Fresh res
 
 **Known limitation**: ColBERT retrieval quality on the small 10-chunk corpus is uneven. Chunks with many generic terms ("Moltar project", "Android") score high across diverse queries, edging out more relevant chunks. Works well for queries with distinctive terms. Improves with larger, more diverse corpora.
 
-### P1 — RAG: Knowledge Base Expansion + Quality
+### ~~P1 — RAG: Retrieval Quality + Query Sanitization~~ DONE
+
+**Status**: Retrieval quality dramatically improved with variance-weighted mean-centered MaxSim. Query sanitization fixed shell injection vulnerability.
+
+**Variance-weighted MaxSim** (`moltar_rag.c`): Standard MaxSim treats all query tokens equally. Common tokens ("Moltar", "project") match well in every chunk, drowning out distinctive tokens. Fixed with three stacked improvements:
+1. **Mean-centering**: For each query token, subtract its mean score across all chunks. Common tokens that score similarly everywhere contribute ~0.
+2. **Variance weighting**: Multiply each centered score by `stdev/max_stdev`. High-variance tokens (distinctive) get full weight, low-variance tokens (common/BOS) get near-zero weight.
+3. **Length normalization**: Divide by `sqrt(n_doc_tokens)` to compensate for longer documents.
+
+**Results** (10-chunk corpus):
+| Query | Before | After |
+|-------|--------|-------|
+| Speed (want chunk 1) | chunk 1 at #3 | **chunk 1 at #1** |
+| ColBERT (want chunk 5) | chunk 5 at #1 | chunk 5 at #1 (bigger margin) |
+| GPU (want chunk 6) | chunk 6 at #4 | chunk 6 at #3 |
+
+Agent now answers factual questions correctly from the knowledge base instead of hallucinating.
+
+**Query sanitization** (`moltar-agent.c`): User input previously passed directly into `system()` via `-p "%s"` — shell metacharacters could cause injection. Fixed by writing query to a temp file and passing via `-f <file>` to `llama-embedding`. Tested with `"`, `$HOME`, `` `whoami` `` in query.
+
+### ~~P1 — Persistent Session Memory~~ DONE
+
+**Status**: Agent saves and restores LCVDB state + turn text across restarts.
+
+**Implementation** (`moltar-agent.c`):
+- `--session FILE` CLI flag
+- Auto-load on startup, auto-save on exit
+- `/save` and `/load` interactive commands
+- Binary format: `[magic "MOLT"][version 1][n_turns][vdb scalars 32B][topo array][vec array][turns array]`
+
+**Verified on device**: Two-session test — conversation with name and activity, quit, restart with same session file, agent correctly recalled "I'm Austin, and I'm building Moltar" from the prior session.
+
+### ~~P1 — LLM Model Prefetch~~ DONE
+
+**Status**: Background prefetch of LFM2 model pages after ColBERT embedding subprocess exits. Overlaps I/O with MaxSim computation.
+
+```c
+snprintf(cmd, sizeof(cmd), "cat %s > /dev/null 2>/dev/null &", llm_model_path);
+system(cmd);
+```
+
+**Measured**: RAG-enabled query latency ~13.6s with Android running (was ~14+ without prefetch). The prefetch runs during the MaxSim search (~16 ms), partially hiding the 4-5s model swap cost.
+
+### P1 — RAG: Knowledge Base Expansion
 
 **Work remaining**:
 - Expand knowledge base with more documents/domains
-- IDF-weighted MaxSim or LLM re-ranking to improve retrieval quality
-- Query sanitization (shell metacharacters in `system()` calls)
+- Build ingestion pipeline callable from the agent itself
 - Tune chunk size and overlap for better context
 - Benchmark MaxSim scaling at 100+ chunks
 
@@ -235,7 +277,11 @@ Moltar currently targets exactly one phone. Future devices:
 - **P0 — Memory Architecture: Three-Layer System** — DONE. `moltar-agent` integrates LFM2-1.2B + LCVDB working memory via random projection of hidden states. Multi-turn conversation with name/topic recall verified on device.
 - **P0 — LCVDB Re-Benchmark + Quick Fixes** — DONE. 100% recall through N=512, NEON build fix.
 - **P1 — RAG: Integration into moltar-agent** — DONE. ColBERT knowledge retrieval integrated via subprocess calls. RAG-grounded factual responses verified on device. ~10.5s end-to-end with model swap overhead.
-- **P2 — Integration: LLM + RAG Pipeline** — DONE. Implemented using ColBERT late-interaction retrieval. See ColBERT RAG section above.
+- **P1 — RAG: Retrieval Quality + Query Sanitization** — DONE. Variance-weighted mean-centered MaxSim fixes common-token dominance. Query written to temp file instead of shell command. Verified on device.
+- **P1 — Persistent Session Memory** — DONE. `--session FILE` flag, auto-save on exit, auto-load on startup. Two-session name recall verified on device.
+- **P1 — LLM Model Prefetch** — DONE. Background `cat` prefetches LFM2 pages during MaxSim search, overlapping I/O with computation.
+- **P1 — LFM2.5-1.2B-Thinking Support** — DONE. 21.4 tok/s, `<think>` blocks work, but too verbose for interactive use.
+- **P2 — Integration: LLM + RAG Pipeline** — DONE. Implemented using ColBERT late-interaction retrieval.
 
 ### Lincoln Manifold Analysis
 
@@ -263,6 +309,8 @@ These were investigated and conclusively ruled out:
 - **NEON assembly port of LCVDB search** — `-ffixed-v0/v1/v2` constraint costs more than preloaded query saves
 - **Inline asm dot product in search_neon.c** — 4% slower than C ref
 - **Activation quant caching** — cache keyed on `src1->data` pointer; allocator reuses buffer addresses for different tensors, causing stale quantized activations and gibberish output. Removed entirely (2-4% throughput cost; old numbers were inflated by the bug)
+- **CV-based IDF weighting for ColBERT** — coefficient of variation is too low after int8 quantization (all weights clamp to ~0.10). Fixed by switching to variance-weighted mean-centering approach
+- **Uniform [-64,63] random projection weights** — variance too high, JL fails. All pairwise cosine sims cluster at ~0 +/- 0.022. Fixed with Rademacher {-1,+1}
 
 ---
 
@@ -301,11 +349,11 @@ adb shell "su -c 'echo performance > /sys/devices/system/cpu/cpu6/cpufreq/scalin
 adb shell "su -c 'echo performance > /sys/devices/system/cpu/cpu7/cpufreq/scaling_governor'"
 adb shell "su -c 'stop'"  # kill Android framework, free ~4 GB/s DRAM BW
 
-# Run moltar-agent (multi-turn conversation with working memory)
-adb shell "su -c 'export LD_LIBRARY_PATH=/data/local/tmp && taskset c0 /data/local/tmp/moltar-agent /data/local/tmp/LFM2-1.2B-Q4_0.gguf -t 2 -c 2048'"
+# Run moltar-agent (working memory + session persistence)
+adb shell "su -c 'export LD_LIBRARY_PATH=/data/local/tmp && taskset c0 /data/local/tmp/moltar-agent /data/local/tmp/LFM2-1.2B-Q4_0.gguf -t 2 -c 2048 --session /data/local/tmp/session.bin'"
 
-# Run moltar-agent with ColBERT RAG knowledge retrieval
-adb shell "su -c 'export LD_LIBRARY_PATH=/data/local/tmp && taskset c0 /data/local/tmp/moltar-agent /data/local/tmp/LFM2-1.2B-Q4_0.gguf -t 2 -c 2048 --rag'"
+# Run moltar-agent with ColBERT RAG + session persistence
+adb shell "su -c 'export LD_LIBRARY_PATH=/data/local/tmp && taskset c0 /data/local/tmp/moltar-agent /data/local/tmp/LFM2-1.2B-Q4_0.gguf -t 2 -c 2048 --rag --session /data/local/tmp/session.bin'"
 
 # Run RAG demo
 adb shell "su -c 'sh /data/local/tmp/moltar_rag.sh demo'"
