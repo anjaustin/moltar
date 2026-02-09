@@ -23,7 +23,7 @@ void lcvdb_search(const lcvdb_t *db, const int8_t *query,
      *   candidates: nodes to expand, unordered, pick best each step
      *   results:    top-ef results sorted descending by score
      */
-    #define MAX_CAND 64
+    #define MAX_CAND 256
     int32_t cand_scores[MAX_CAND];
     uint8_t cand_ids[MAX_CAND];
     int cand_count = 0;
@@ -106,13 +106,13 @@ void lcvdb_search(const lcvdb_t *db, const int8_t *query,
 
             int32_t s = dot_i8_ref(query, nodes[nb].vector);
 
-            /* Add to candidates if promising */
-            if (res_count < LCVDB_EF_SEARCH || s > res_scores[res_count - 1]) {
-                if (cand_count < MAX_CAND) {
-                    cand_scores[cand_count] = s;
-                    cand_ids[cand_count] = nb;
-                    cand_count++;
-                }
+            /* Add ALL unvisited neighbors to candidate pool.
+             * The result list handles filtering — candidates just
+             * need to be available for expansion. */
+            if (cand_count < MAX_CAND) {
+                cand_scores[cand_count] = s;
+                cand_ids[cand_count] = nb;
+                cand_count++;
             }
 
             /* Insert into results (sorted descending) */

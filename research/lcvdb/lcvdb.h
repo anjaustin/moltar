@@ -25,7 +25,7 @@
 #define LCVDB_NODE_SIZE     64      /* bytes per node (1 cache line)        */
 #define LCVDB_M             8       /* max neighbors per node (layer 0)     */
 #define LCVDB_M_UPPER       4       /* max neighbors per node (upper layers)*/
-#define LCVDB_EF_SEARCH     8       /* beam width during search             */
+#define LCVDB_EF_SEARCH     64      /* beam width during search             */
 #define LCVDB_MAX_LAYERS    4       /* maximum HNSW layers                  */
 #define LCVDB_MAX_NODES     256     /* max nodes (uint8 IDs)                */
 
