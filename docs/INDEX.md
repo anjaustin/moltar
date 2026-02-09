@@ -1,36 +1,19 @@
-# Moltar Docs Index
+# Docs Index
 
-This is the “you are here” entry point for the repository’s documentation.
+## Start Here
 
-## Quick paths
+- **[../README.md](../README.md)** — Project overview, results, quick start
+- **[../PRD.md](../PRD.md)** — Current state + prioritized next steps
+- **[../PERFORMANCE.md](../PERFORMANCE.md)** — All benchmark data (LLM + VDB)
+- **[../ARCHITECTURE.md](../ARCHITECTURE.md)** — System design: kernels, VDB, device setup
+- **[../HARDWARE_COMPATIBILITY.md](../HARDWARE_COMPATIBILITY.md)** — MT6855V specs, cache hierarchy, ISA
+- **[../CHANGELOG.md](../CHANGELOG.md)** — Commit-level history
 
-- **Get something running fast**: `../QUICK_START.md`
-- **Install everything**: `../INSTALL.md`
-- **Troubleshoot device/build/runtime issues**: `TROUBLESHOOTING_GUIDE.md`
-- **LFN/LFM deployment (ExecuTorch / Brack)**: `LFN_DEPLOYMENT_GUIDE.md`
-- **SpaceGhost ↔ Brack integration details**: `SPACEGHOST_BRACK_INTEGRATION.md`
-- **ExecuTorch + soft‑chip integration**: `EXECUTORCH_SOFT_CHIP_INTEGRATION.md`
-- **Lincoln Manifold Method (methodology)**: `../LMM.md`
-- **Neural Interposer (novel architecture)**: `NEURAL_INTERPOSER.md`
-  - Runnable demo: `../research/brack/neural_interposer_demo/README.md`
-- **PRD (Neural Interposer + LFM2)**: `PRD_NEURAL_INTERPOSER_LFM2.md`
-- **Reference notes (draft writeups)**: `NEURAL_INTERPOSER_REFERENCE_NOTES.md`
+## Historical / Reference
 
-## What’s “real” today (Feb 2026)
+These docs are from earlier project phases (SpaceGhost/Brack/ExecuTorch era) and may not reflect the current system:
 
-- **Validated device class**: `../HARDWARE_COMPATIBILITY.md`
-- **Execution paths**
-  - **ExecuTorch / Brack**: production-ish deployment path
-  - **Neural Interposer demo**: minimal Vulkan “channels + frozen chip” proof
-
-## SpaceGhost docs
-
-- `SPACEGHOST_ARCHITECTURE.md`
-- `SPACEGHOST_EXAMPLES.md`
-- `SPACEGHOST_MIGRATION_GUIDE.md`
-
-## Methodology
-
-- `methodology/README.md`
-- `methodology/RESEARCH_METHODOLOGY.md`
-
+- `SPACEGHOST_ARCHITECTURE.md` — ExecuTorch optimization framework (superseded by custom llama.cpp kernels)
+- `LFN_DEPLOYMENT_GUIDE.md` — ExecuTorch-based deployment (superseded)
+- `NEURAL_INTERPOSER.md` — Experimental Vulkan architecture (not active)
+- `VULKAN_POWERVR_NOTES.md` — PowerVR Vulkan observations

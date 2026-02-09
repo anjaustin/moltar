@@ -1,4 +1,4 @@
-/* L-Cache VDB — Performance benchmark */
+/* L-Cache VDB — Performance benchmark (split storage) */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,7 +19,7 @@ static void rand_vector(int8_t *v) {
         v[i] = rand_i8();
 }
 
-volatile uint8_t sink_u8;
+volatile uint16_t sink_u16;
 volatile int32_t sink_i32;
 
 static int64_t now_ns(void) {
@@ -29,12 +29,12 @@ static int64_t now_ns(void) {
 }
 
 int main(void) {
-    printf("L-Cache VDB Performance Benchmark\n");
-    printf("==================================\n");
+    printf("L-Cache VDB Performance Benchmark (Split Storage)\n");
+    printf("==================================================\n");
     printf("ef_search=%d, M=%d, dim=%d\n\n", LCVDB_EF_SEARCH, LCVDB_M, LCVDB_VEC_DIM);
 
-    int test_sizes[] = {32, 64, 128, 256};
-    int num_sizes = 4;
+    int test_sizes[] = {32, 64, 128, 256, 512, 1024};
+    int num_sizes = 6;
     int k_values[] = {1, 5, 10};
     int num_k = 3;
 
@@ -44,8 +44,7 @@ int main(void) {
         volatile int x = 0;
         for (int i = 0; i < 1000000; i++) x += i;
         int64_t b = now_ns();
-        printf("Timer check: a=%lld b=%lld diff=%lld ns (expect ~ms)\n\n",
-               (long long)a, (long long)b, (long long)(b - a));
+        printf("Timer check: diff=%lld ns (expect ~ms)\n\n", (long long)(b - a));
     }
 
     int warmup = 2000;
@@ -53,57 +52,67 @@ int main(void) {
 
     for (int si = 0; si < num_sizes; si++) {
         int N = test_sizes[si];
-        if (N > LCVDB_MAX_NODES) continue;
 
         rng_seed(12345 + N);
 
+        /* Allocate split storage */
         lcvdb_t db __attribute__((aligned(64)));
-        void *node_buf = NULL;
-        if (posix_memalign(&node_buf, 64, LCVDB_MAX_NODES * LCVDB_NODE_SIZE)) {
-            fprintf(stderr, "alloc failed\n");
+        void *topo_buf = NULL, *vec_buf = NULL;
+        if (posix_memalign(&topo_buf, 64, N * sizeof(lcvdb_topo_t)) ||
+            posix_memalign(&vec_buf, 64, N * sizeof(lcvdb_vec_t))) {
+            fprintf(stderr, "alloc failed for N=%d\n", N);
             return 1;
         }
-        memset(node_buf, 0, LCVDB_MAX_NODES * LCVDB_NODE_SIZE);
-        lcvdb_init(&db, node_buf);
+        lcvdb_init(&db, topo_buf, vec_buf, N);
 
         for (int i = 0; i < N; i++) {
             int8_t v[LCVDB_VEC_DIM];
             rand_vector(v);
-            lcvdb_insert(&db, v);
+            lcvdb_insert(&db, v, (uint32_t)i);
         }
 
-        printf("N=%3d\n", N);
+        printf("N=%4d  topo=%.1fKB vec=%.1fKB total=%.1fKB\n", N,
+               (double)N * 32 / 1024.0,
+               (double)N * 64 / 1024.0,
+               (double)N * 96 / 1024.0);
+
+        /* Reduce iterations for large N */
+        int iters = bench_iters;
+        if (N >= 1024) iters = 10000;
+        else if (N >= 512) iters = 50000;
 
         for (int ki = 0; ki < num_k; ki++) {
             int k = k_values[ki];
             if (k > N) continue;
 
             int nq = 1000;
-            int8_t (*queries)[LCVDB_VEC_DIM] = malloc(nq * LCVDB_VEC_DIM);
+            int8_t *queries = malloc(nq * LCVDB_VEC_DIM);
             rng_seed(99999 + N * 100 + k);
             for (int i = 0; i < nq; i++)
-                rand_vector(queries[i]);
+                rand_vector(queries + i * LCVDB_VEC_DIM);
 
-            uint8_t result_ids[16];
+            uint16_t result_ids[16];
             int32_t result_scores[16];
 
             for (int i = 0; i < warmup; i++) {
-                lcvdb_search(&db, queries[i % nq], k, result_ids, result_scores);
-                sink_u8 = result_ids[0];
+                lcvdb_search(&db, queries + (i % nq) * LCVDB_VEC_DIM,
+                            k, result_ids, result_scores);
+                sink_u16 = result_ids[0];
             }
 
             int64_t t0 = now_ns();
-            for (int i = 0; i < bench_iters; i++) {
-                lcvdb_search(&db, queries[i % nq], k, result_ids, result_scores);
-                sink_u8 = result_ids[0];
+            for (int i = 0; i < iters; i++) {
+                lcvdb_search(&db, queries + (i % nq) * LCVDB_VEC_DIM,
+                            k, result_ids, result_scores);
+                sink_u16 = result_ids[0];
                 sink_i32 = result_scores[0];
             }
             int64_t t1 = now_ns();
 
             int64_t elapsed = t1 - t0;
-            int64_t ns_per = elapsed / bench_iters;
-            int64_t cycles = ns_per * 22 / 10;
-            int64_t qps = (int64_t)bench_iters * 1000000000LL / elapsed;
+            int64_t ns_per = elapsed / iters;
+            int64_t cycles = ns_per * 22 / 10;  /* 2.2 GHz A78 */
+            int64_t qps = (int64_t)iters * 1000000000LL / elapsed;
 
             printf("  k=%2d: %5lld ns  %5lld cyc  %7lld qps\n",
                    k, (long long)ns_per, (long long)cycles, (long long)qps);
@@ -113,19 +122,18 @@ int main(void) {
 
         /* Bench insert */
         {
-            int insert_iters = 2000;
+            int insert_iters = N >= 1024 ? 200 : 2000;
 
             int64_t t0 = now_ns();
             for (int iter = 0; iter < insert_iters; iter++) {
-                memset(node_buf, 0, LCVDB_MAX_NODES * LCVDB_NODE_SIZE);
-                lcvdb_init(&db, node_buf);
+                lcvdb_init(&db, topo_buf, vec_buf, N);
                 rng_seed(12345 + N);
                 for (int i = 0; i < N; i++) {
                     int8_t v[LCVDB_VEC_DIM];
                     rand_vector(v);
-                    lcvdb_insert(&db, v);
+                    lcvdb_insert(&db, v, (uint32_t)i);
                 }
-                sink_u8 = (uint8_t)db.node_count;
+                sink_u16 = (uint16_t)db.node_count;
             }
             int64_t t1 = now_ns();
 
@@ -138,7 +146,8 @@ int main(void) {
         }
 
         printf("\n");
-        free(node_buf);
+        free(topo_buf);
+        free(vec_buf);
     }
 
     return 0;

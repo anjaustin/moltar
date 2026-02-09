@@ -1,374 +1,126 @@
-# Performance Guide
-
-Performance characteristics, benchmarks, and optimization guidelines for the moltar research platform.
+# Performance
 
-## Overview
-
-Performance is critical for on-device AI research. This guide covers performance targets, measurement methodologies, and optimization strategies.
+All numbers measured on Motorola Moto G Power 5G 2023 (MT6855V / Dimensity 930), Cortex-A78 big cores @ 2.2 GHz, Android framework stopped (`su -c 'stop'`), `taskset c0` (cores 6-7).
 
-## Performance Targets
-
-### LFM2-350M Performance Results
+## LLM Inference
 
-#### Current Hardware: MediaTek MT6855V (Dimensity 720)
-| Metric | Target | Status | Notes |
-|--------|--------|--------|-------|
-| **Latency** | <400ms | ✅ **ACHIEVABLE** | SpaceGhost optimized projection |
-| **Memory** | <256MB | ✅ Validated | Runtime memory usage with quantization |
-| **Storage** | ~500MB | ✅ Validated | Model + app size |
-| **Battery** | <5%/hour | ✅ Validated | Additional drain |
-| **CPU** | <20% | ✅ Validated | Background usage |
-| **Dot Product Support** | Required | ✅ **CONFIRMED** | ARMv8.2-A asimddp available |
-| **8-Core Utilization** | Optimized | ✅ **ENABLED** | SpaceGhost threading active |
-
-#### Current: MediaTek + Mali (Target Hardware)
-| Metric | Target | Projected | Notes |
-|--------|--------|-----------|-------|
-| **Latency** | <200ms | **64.8ms** | SpaceGhost + DSP acceleration |
-| **Memory** | <256MB | <200MB | Optimized for hardware |
-| **DSP Utilization** | >50% | **3+ ops delegated** | XNNPack + Hexagon DSP |
-| **Hardware Acceleration** | 2-3x | **4-8x total** | DSP + CPU + optimizations |
+Custom llama.cpp fork with row-scaled quantization and NEON DOTPROD GEMV/GEMM kernels.
 
-### Performance Results by Hardware
+### Token Generation (tg32, 2 threads)
 
-#### MediaTek MT6855V (Current Test Device)
-| Configuration | Latency | Memory | CPU Usage | Status |
-|---------------|---------|--------|-----------|--------|
-| **LFM2-350M + SpaceGhost** | ~200-400ms | <256MB | <20% | ✅ **Tested & Deployed** |
-| LFM2-350M (Baseline) | ~600-800ms | <256MB | <30% | ✅ Compatible |
-| SpaceGhost Improvement | **2-3x speedup** | Same | 33% reduction | ✅ **Validated** |
-
-#### MediaTek + Mali (Current Hardware)
-| Configuration | Latency | Memory | DSP Usage | Status |
-|---------------|---------|--------|-----------|--------|
-| **LFM2-350M + SpaceGhost** | **<200ms** | <200MB | **3+ ops delegated** | 🎯 **Target Achievement** |
-| LFM2-350M (Baseline) | ~400-600ms | <256MB | None | ✅ Compatible |
-| SpaceGhost Improvement | **4-8x speedup** | 22% reduction | **DSP enabled** | 🎯 **Projected** |
-
-**Current Hardware Validation:**
-- **Device:** Motorola moto g power 5G (MediaTek MT6855V)
-- **SpaceGhost Status:** ✅ **Fully deployed and tested**
-- **Performance Gain:** 2-3x improvement validated on real hardware
-- **Dot Product Support:** ✅ Confirmed (ARMv8.2-A asimddp)
-- **Threading Optimization:** ✅ Active (8-core utilization)
-
-**MediaTek + Mali Performance:**
-- **Hardware Advantage:** Dedicated DSP + A76 cores + 4MB L3 cache
-- **Additional Gains:** 2-3x improvement beyond MediaTek results
-- **Total Performance:** 4-8x vs baseline ExecuTorch
-
-## Measurement Methodology
-
-### Latency Measurement
-
-```python
-import time
-
-def measure_latency(model, input_text):
-    start_time = time.perf_counter()
-
-    # Model inference
-    response = model.generate(input_text)
-
-    end_time = time.perf_counter()
-    latency_ms = (end_time - start_time) * 1000
-
-    return latency_ms, response
-```
-
-**Factors affecting latency:**
-- Model size and complexity
-- Input length and processing requirements
-- Hardware acceleration utilization
-- Memory pressure and caching
-- Background system load
-
-### Memory Measurement
-
-```bash
-# Android memory profiling
-adb shell dumpsys meminfo com.moltar.brack
-
-# Process-specific memory
-adb shell ps -p $(adb shell pidof com.moltar.brack) -o rss,vsz
-```
-
-**Memory components:**
-- Model weights and parameters
-- KV cache for attention mechanisms
-- Input/output processing buffers
-- Runtime overhead and allocations
-
-### Battery Measurement
-
-```bash
-# Battery drain monitoring
-adb shell dumpsys battery
-
-# Power consumption tracking
-# Note: Requires additional battery monitoring tools
-```
-
-**Battery impact factors:**
-- CPU utilization during inference
-- DSP/GPU power consumption
-- Memory access patterns
-- Screen and system state
-
-### CPU Utilization
-
-```bash
-# CPU usage monitoring
-adb shell top -p $(adb shell pidof com.moltar.brack) -o %CPU
-
-# System-wide CPU stats
-adb shell cat /proc/stat
-```
-
-## Benchmarking Results
-
-### LFM2-350M Chat Performance
-
-#### Latency Distribution (100 inferences)
-```
-Min:  85ms
-Max: 245ms
-Mean: 156ms
-P95: 198ms
-P99: 235ms
-```
-
-#### Memory Usage Over Time
-```
-Initial load: 180MB
-Steady state: 210MB
-Peak usage: 240MB
-Post-GC: 195MB
-```
-
-#### Battery Impact (1-hour continuous chat)
-```
-Base drain: 2.1%/hour
-With LFN: 4.8%/hour
-Additional: 2.7%/hour (acceptable)
-```
-
-## Optimization Strategies
-
-### Model Optimization
-
-#### Quantization
-```python
-# 4-bit quantization for mobile
-model = quantize_model(model, bits=4)
-# Reduces size by ~75%, minimal accuracy loss
-```
-
-#### Pruning
-```python
-# Remove redundant parameters
-pruned_model = prune_model(model, sparsity=0.3)
-# Reduces size by ~30%, slight accuracy trade-off
-```
-
-### Hardware Acceleration
-
-#### DSP Utilization
-```cpp
-// Enable Hexagon DSP acceleration
-runtime_config.enable_dsp = true;
-runtime_config.dsp_threads = 4;
-```
-
-#### GPU Offloading
-```cpp
-// Use Adreno GPU for matrix operations
-runtime_config.use_gpu = true;
-runtime_config.gpu_precision = FP16;
-```
-
-### Memory Optimization
-
-#### Efficient Caching
-```cpp
-// Optimize KV cache management
-cache_config.max_sequence_length = 2048;
-cache_config.attention_optimization = true;
-cache_config.memory_efficient_attention = true;
-```
-
-#### Memory Pool Management
-```cpp
-// Pre-allocate memory pools
-memory_config.use_memory_pool = true;
-memory_config.pool_size_mb = 128;
-memory_config.enable_garbage_collection = true;
-```
-
-### Power Optimization
-
-#### Adaptive Frequency
-```cpp
-// Reduce frequency during idle periods
-power_config.adaptive_frequency = true;
-power_config.idle_timeout_ms = 5000;
-power_config.low_power_mode = true;
-```
-
-#### Batch Processing
-```cpp
-// Process multiple requests efficiently
-inference_config.batch_size = 4;
-inference_config.dynamic_batching = true;
-```
-
-## Performance Monitoring
-
-### Built-in Monitoring
-
-```kotlin
-// Enable performance tracking
-LFMConfig.enablePerformanceMonitoring = true
-LFMConfig.performanceLogLevel = LogLevel.DEBUG
-
-// Monitor specific metrics
-val metrics = lfmModel.getPerformanceMetrics()
-println("Latency: ${metrics.averageLatency}ms")
-println("Memory: ${metrics.peakMemoryUsage}MB")
-println("CPU: ${metrics.cpuUtilization}%")
-```
-
-### External Monitoring
-
-```bash
-# Continuous performance logging
-./scripts/monitor_performance.sh com.moltar.brack
-
-# Generate performance reports
-./scripts/generate_performance_report.sh
-```
-
-## Troubleshooting Performance Issues
-
-### High Latency
-
-**Symptoms:**
-- Response times >500ms
-- UI freezing during inference
-
-**Solutions:**
-1. Check hardware acceleration is enabled
-2. Reduce input length
-3. Use smaller model variant
-4. Close background applications
-5. Ensure device is cool (thermal throttling)
-
-### High Memory Usage
-
-**Symptoms:**
-- App crashes with OOM errors
-- System becomes unresponsive
-
-**Solutions:**
-1. Enable memory optimization flags
-2. Reduce model size with quantization
-3. Clear app cache regularly
-4. Monitor memory usage patterns
-5. Consider model offloading strategies
-
-### Battery Drain
-
-**Symptoms:**
-- Rapid battery depletion
-- Device heating during use
-
-**Solutions:**
-1. Enable power optimization modes
-2. Reduce inference frequency
-3. Use lower-precision models
-4. Implement idle timeouts
-5. Monitor background processing
-
-### CPU Overload
-
-**Symptoms:**
-- Device becomes slow/unresponsive
-- High CPU temperatures
-
-**Solutions:**
-1. Enable DSP acceleration
-2. Reduce concurrent operations
-3. Optimize inference parameters
-4. Use CPU affinity settings
-5. Implement request throttling
-
-## Comparative Analysis
-
-### Performance vs Model Size
-
-| Model Size | Latency | Memory | Battery | Quality |
-|------------|---------|--------|---------|---------|
-| 350M | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ |
-| 2B | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐⭐⭐ |
-| 7B | ⭐⭐ | ⭐⭐ | ⭐ | ⭐⭐⭐⭐⭐ |
-| 40B | ⭐ | ⭐ | ❌ | ⭐⭐⭐⭐⭐ |
-
-### Device Compatibility
-
-| Device | Latency | Memory | Battery | Recommendation |
-|--------|---------|--------|---------|----------------|
-| MediaTek + Mali | ✅ Excellent | ✅ Excellent | ✅ Good | ⭐ Primary target |
-| MediaTek Dimensity 6/7/8 | ✅ Good | ✅ Good | ⚠️ Fair | ⭐ Compatible |
-| MediaTek Dimensity 8+ | ✅ Excellent | ✅ Excellent | ✅ Excellent | ⭐ Optimal |
-| A-series/M-series | ⚠️ Variable | ✅ Good | ✅ Good | ⚠️ Test required |
-| Older devices | ❌ Poor | ❌ Limited | ❌ High drain | ❌ Not recommended |
-
-## Future Performance Improvements
-
-### Short-term (3-6 months)
-- **Model optimization**: Improved quantization techniques
-- **Runtime optimization**: Better memory management
-- **Hardware utilization**: Enhanced DSP/GPU usage
-- **Caching improvements**: More efficient KV cache
-
-### Medium-term (6-12 months)
-- **Custom kernels**: Device-specific optimized operations
-- **Dynamic adaptation**: Runtime performance adjustment
-- **Multi-threading**: Parallel inference processing
-- **Edge TPU integration**: Additional accelerator support
-
-### Long-term (1+ years)
-- **Neuromorphic computing**: Brain-inspired processing
-- **Quantum acceleration**: Quantum-enhanced inference
-- **Federated learning**: Distributed model optimization
-- **Self-optimizing systems**: Automatic performance tuning
-
-## Contributing Performance Improvements
-
-### Performance Testing
-```bash
-# Run performance test suite
-./scripts/run_performance_tests.sh
-
-# Submit benchmark results
-./scripts/submit_benchmark_results.sh
-```
-
-### Optimization Proposals
-1. **Document the optimization** with before/after metrics
-2. **Provide reproducible benchmarks**
-3. **Consider backward compatibility**
-4. **Test on multiple device types**
-5. **Include performance regression tests**
-
-### Reporting Issues
-When reporting performance issues:
-- Include device specifications
-- Provide benchmark results
-- Describe expected vs actual performance
-- Include system logs and metrics
-- Specify test conditions and environment
-
----
-
-*Performance optimization is an ongoing process. This guide is updated as new optimizations and benchmarks become available.*
+| Model | Quant | Weight size | tok/s | GB/s DRAM | Bottleneck |
+|-------|-------|-------------|-------|-----------|------------|
+| LFM2-350M | Q4_0 | 190 MiB | **80.06** | 15.0 | DRAM BW |
+| LFM2-350M | Q8_0 | 359 MiB | **41.69** | 14.7 | DRAM BW |
+| LFM2-700M | Q4_0 | 423 MiB | **32.96** | 13.7 | DRAM BW |
+| LFM2-1.2B | Q4_0 | 661 MiB | **21.66** | 14.1 | DRAM BW |
+
+All models are DRAM-bandwidth-bound during token generation. The sustained DRAM bandwidth of the MT6855V with Android stopped is **15.5 GB/s** (2 threads, LPDDR4X @ 4266 MHz).
+
+### Prompt Processing (pp32, 2 threads)
+
+GEMM kernels process 4 activation rows simultaneously with weight reuse.
+
+| Model | Quant | tok/s (pp32) |
+|-------|-------|-------------|
+| LFM2-350M | Q4_0 | ~304 |
+
+### Optimization Timeline
+
+| Optimization | LFM2-350M Q4_0 tok/s | Improvement |
+|-------------|----------------------|-------------|
+| Baseline (upstream llama.cpp + DOTPROD) | ~58 | — |
+| Row-Scaled Q4_0 format | ~56 | format change, slight regression |
+| Pure-integer SDOT GEMV | ~56 | correctness, no speed change |
+| GEMM dispatch (pp) | ~56 tg / 304 pp | 3x prompt speedup |
+| Barrier-skip | 56.8 | +1.4% |
+| Graph dispatch + thread fast-forward + quant caching | 58.3 | +2.6% |
+| **Android framework stopped** | **80.06** | **+37%** |
+
+The single biggest gain was discovering that Android framework processes consume ~4 GB/s of DRAM bandwidth. Stopping them (`su -c 'stop'`) immediately raised throughput from 58 to 80 tok/s.
+
+### Kernel Breakdown (simpleperf)
+
+| Function | % cycles | Notes |
+|----------|----------|-------|
+| `forward_mul_mat` (GEMV) | ~35% | Row-scaled Q4_0, SDOT inner loop |
+| Token embedding (Q6_K) | ~18% | Single tensor, not optimized |
+| GEMM (prompt) | ~11% | 4-row batch, weight reuse |
+| Thread sync (barriers) | ~7% | Reduced by barrier-skip |
+| Tensor repack | ~3% | One-time cost |
+
+## L-Cache Vector Database
+
+HNSW graph search with NEON int8 dot products. Split storage layout: topology (32 bytes/node) separate from vectors (64 bytes/node).
+
+### Search Latency
+
+| N | k=1 (ns) | k=5 (ns) | k=10 (ns) | QPS | Cycles |
+|---|----------|----------|-----------|-----|--------|
+| 32 | 2,291 | 2,289 | 2,284 | 436K | 5,040 |
+| 64 | 6,060 | 6,052 | 6,055 | 165K | 13,332 |
+| 128 | 12,505 | 12,495 | 12,515 | 80K | 27,511 |
+| 256 | 19,415 | 19,350 | 19,365 | 51K | 42,713 |
+| 512 | 23,488 | 23,580 | 23,532 | 42K | 51,673 |
+| 1024 | 24,272 | 24,202 | 24,238 | 41K | 53,398 |
+
+Note: k value barely affects latency — beam search dominates, not output copy.
+
+### Recall
+
+| N | recall@1 | recall@5 | recall@10 |
+|---|----------|----------|-----------|
+| 32 | 100% (50/50) | 100% (250/250) | 100% (500/500) |
+| 64 | 100% (50/50) | 100% (250/250) | 100% (500/500) |
+| 128 | 100% (50/50) | 100% (250/250) | 100% (500/500) |
+| 256 | 100% (50/50) | 99.6% (249/250) | 98.6% (493/500) |
+| 512 | 88% (44/50) | 94.4% (236/250) | 94.0% (470/500) |
+| 1024 | 84% (42/50) | 84.8% (212/250) | 81.2% (406/500) |
+
+Recall drop at N>=512 is caused by brute-force candidate collection during insert (CAND_MAX=16). This will be fixed by using HNSW beam search during insert (see PRD.md).
+
+### Build Time
+
+| N | Total build | Per insert |
+|---|-------------|------------|
+| 32 | 45 us | 1,423 ns |
+| 64 | 188 us | 2,937 ns |
+| 128 | 647 us | 5,057 ns |
+| 256 | 2.1 ms | 8,217 ns |
+| 512 | 6.8 ms | 13,365 ns |
+| 1024 | 23.6 ms | 22,999 ns |
+
+Build is O(N^2) due to brute-force candidate scan. Same fix as recall: HNSW search during insert.
+
+### Memory Budget (Split Storage)
+
+| N | Topology | Vectors | Total | Fits in |
+|---|----------|---------|-------|---------|
+| 256 | 8 KB | 16 KB | 24 KB | L1D (64 KB) |
+| 512 | 16 KB | 32 KB | 48 KB | L1D |
+| 1024 | 32 KB | 64 KB | 96 KB | L2 (256 KB) |
+| 4096 | 128 KB | 256 KB | 384 KB | L2/L3 |
+| 65534 | 2 MB | 4 MB | 6 MB | DRAM |
+
+During search, only topology is traversed continuously. Vectors are loaded on-demand for distance computation. Effective hot working set = topology array only.
+
+## DRAM Bandwidth
+
+Measured with custom membw_test using NEON `ld1` streaming loads on big cores:
+
+| Threads | Android running | Android stopped |
+|---------|----------------|-----------------|
+| 1 | ~8 GB/s | ~10 GB/s |
+| 2 | ~11 GB/s | **15.5 GB/s** |
+
+Theoretical max for LPDDR4X @ 4266 MHz, dual-channel: ~17 GB/s. We achieve 91% of theoretical with Android stopped.
+
+## Methodology
+
+- All measurements use `CLOCK_MONOTONIC_RAW` on the device
+- CPU governors set to `performance` (2.2 GHz locked)
+- `taskset c0` pins to big cores (6-7)
+- Android framework stopped (`su -c 'stop'`)
+- Warmup iterations run before timing (2000 for VDB, varies for LLM)
+- VDB bench uses 100K iterations for N<=256, 50K for N=512, 10K for N=1024
+- LLM numbers from llama-bench with `-r 5` (5 repetitions)

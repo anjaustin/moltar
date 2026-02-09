@@ -1,4 +1,4 @@
-# L-Cache VDB — Makefile
+# L-Cache VDB — Makefile (split storage)
 # A vector database that fits in L-cache
 
 ARCH := $(shell uname -m)
@@ -20,33 +20,46 @@ endif
 CFLAGS = -O2 -Wall -march=armv8-a
 ASFLAGS = -march=armv8-a
 
-# Assembly sources (NEON distance + init + build)
-ASM_SRCS = init.S distance.S build.S
-# C sources (reference search — NEON search WIP)
-C_SRCS = search_ref.c
+# Assembly sources (NEON distance only — init/build/search are C ref now)
+ASM_SRCS = distance.S
+# C reference sources (split storage)
+C_SRCS = init_ref.c build_ref.c search_ref.c
 
-TARGET = test_lcvdb
+# Common sources for all test binaries
+COMMON = $(ASM_SRCS) $(C_SRCS)
 
-.PHONY: all clean size test
+.PHONY: all clean size test recall bench
 
-all: $(TARGET)
+all: test_lcvdb test_recall test_bench
 
-$(TARGET): test_lcvdb.c $(ASM_SRCS) $(C_SRCS) lcvdb.h
-	$(CC) $(CFLAGS) -o $@ test_lcvdb.c $(ASM_SRCS) $(C_SRCS) -static
+test_lcvdb: test_lcvdb.c $(COMMON) lcvdb.h
+	$(CC) $(CFLAGS) -o $@ test_lcvdb.c $(COMMON) -static
 
-test: $(TARGET)
-	$(RUN) ./$(TARGET)
+test_recall: test_recall.c $(COMMON) lcvdb.h
+	$(CC) $(CFLAGS) -o $@ test_recall.c $(COMMON) -static
 
-size: $(ASM_SRCS) $(C_SRCS)
+test_bench: test_bench.c $(COMMON) lcvdb.h
+	$(CC) $(CFLAGS) -o $@ test_bench.c $(COMMON) -static
+
+test: test_lcvdb
+	$(RUN) ./test_lcvdb
+
+recall: test_recall
+	$(RUN) ./test_recall
+
+bench: test_bench
+	$(RUN) ./test_bench
+
+size: $(COMMON)
 	@echo "=== Component sizes ==="
-	$(AS) $(ASFLAGS) -o init.o init.S
 	$(AS) $(ASFLAGS) -o distance.o distance.S
-	$(AS) $(ASFLAGS) -o build.o build.S
+	$(CC) $(CFLAGS) -c init_ref.c -o init_ref.o
+	$(CC) $(CFLAGS) -c build_ref.c -o build_ref.o
 	$(CC) $(CFLAGS) -c search_ref.c -o search_ref.o
-	$(SIZE) init.o distance.o search_ref.o build.o
+	$(SIZE) distance.o init_ref.o build_ref.o search_ref.o
 	@echo ""
 	@echo "=== Function sizes in binary ==="
-	$(NM) --size-sort -S $(TARGET) | grep lcvdb
+	$(NM) --size-sort -S test_lcvdb | grep lcvdb
 
 clean:
-	rm -f $(TARGET) *.o test_debug test_debug_g test_ref test_full_ref
+	rm -f test_lcvdb test_recall test_bench *.o

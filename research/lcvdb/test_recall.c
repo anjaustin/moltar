@@ -1,5 +1,6 @@
-/* L-Cache VDB — Recall benchmark
+/* L-Cache VDB — Recall benchmark (split storage)
  * Tests search recall@k at various N with statistical rigor.
+ * Now supports N up to 4096+ with split storage layout.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,7 +9,6 @@
 #include "lcvdb.h"
 
 static uint32_t rng_state;
-
 static void rng_seed(uint32_t seed) { rng_state = seed; }
 
 static int8_t rand_i8(void) {
@@ -31,13 +31,14 @@ static int32_t ref_dot(const int8_t *a, const int8_t *b) {
 }
 
 /* Brute-force top-k. Returns IDs in bf_ids sorted by score descending. */
-static void brute_force_topk(const int8_t *query, const int8_t vecs[][LCVDB_VEC_DIM],
-                             int n, int k, uint8_t *bf_ids) {
-    int32_t scores[256];
-    uint8_t ids[256];
+static void brute_force_topk(const int8_t *query, const int8_t *vecs,
+                             int n, int k, uint16_t *bf_ids) {
+    /* Use heap-like approach for large N */
+    int32_t *scores = malloc(n * sizeof(int32_t));
+    uint16_t *ids = malloc(n * sizeof(uint16_t));
     for (int i = 0; i < n; i++) {
-        scores[i] = ref_dot(query, vecs[i]);
-        ids[i] = i;
+        scores[i] = ref_dot(query, vecs + i * LCVDB_VEC_DIM);
+        ids[i] = (uint16_t)i;
     }
     /* Partial selection sort for top-k */
     for (int i = 0; i < k && i < n; i++) {
@@ -48,88 +49,100 @@ static void brute_force_topk(const int8_t *query, const int8_t vecs[][LCVDB_VEC_
         }
         if (best != i) {
             int32_t ts = scores[i]; scores[i] = scores[best]; scores[best] = ts;
-            uint8_t ti = ids[i]; ids[i] = ids[best]; ids[best] = ti;
+            uint16_t ti = ids[i]; ids[i] = ids[best]; ids[best] = ti;
         }
         bf_ids[i] = ids[i];
     }
+    free(scores);
+    free(ids);
 }
 
 int main(void) {
-    printf("L-Cache VDB Recall Benchmark\n");
-    printf("============================\n");
+    printf("L-Cache VDB Recall Benchmark (Split Storage)\n");
+    printf("=============================================\n");
     printf("ef_search=%d, M=%d\n\n", LCVDB_EF_SEARCH, LCVDB_M);
 
-    int test_sizes[] = {32, 64, 128, 256};
-    int num_sizes = 4;
+    int test_sizes[] = {32, 64, 128, 256, 512, 1024};
+    int num_sizes = 6;
     int num_queries = 50;
     int k_values[] = {1, 5, 10};
     int num_k = 3;
 
     for (int si = 0; si < num_sizes; si++) {
         int N = test_sizes[si];
-        if (N > LCVDB_MAX_NODES) continue;
 
-        rng_seed(12345 + N);  /* Reproducible per N */
+        rng_seed(12345 + N);
 
-        /* Allocate */
+        /* Allocate split storage */
         lcvdb_t db __attribute__((aligned(64)));
-        void *node_buf = NULL;
-        if (posix_memalign(&node_buf, 64, LCVDB_MAX_NODES * LCVDB_NODE_SIZE)) {
-            fprintf(stderr, "alloc failed\n");
+        void *topo_buf = NULL, *vec_buf = NULL;
+        if (posix_memalign(&topo_buf, 64, N * sizeof(lcvdb_topo_t)) ||
+            posix_memalign(&vec_buf, 64, N * sizeof(lcvdb_vec_t))) {
+            fprintf(stderr, "alloc failed for N=%d\n", N);
             return 1;
         }
-        memset(node_buf, 0, LCVDB_MAX_NODES * LCVDB_NODE_SIZE);
-        lcvdb_init(&db, node_buf);
+        lcvdb_init(&db, topo_buf, vec_buf, N);
+
+        /* Store vectors separately for brute-force comparison */
+        int8_t *vecs_flat = malloc(N * LCVDB_VEC_DIM);
 
         /* Insert N vectors */
-        int8_t vecs[256][LCVDB_VEC_DIM];
         for (int i = 0; i < N; i++) {
-            rand_vector(vecs[i]);
-            lcvdb_insert(&db, vecs[i]);
+            int8_t v[LCVDB_VEC_DIM];
+            rand_vector(v);
+            memcpy(vecs_flat + i * LCVDB_VEC_DIM, v, LCVDB_VEC_DIM);
+            lcvdb_insert(&db, v, (uint32_t)i);
         }
 
         /* Check graph connectivity */
-        lcvdb_node_t *nodes = (lcvdb_node_t *)node_buf;
-        uint8_t bfs_visited[256] = {0};
-        uint8_t bfs_queue[256];
+        uint8_t *bfs_visited = calloc((N + 7) / 8, 1);
+        uint16_t *bfs_queue = malloc(N * sizeof(uint16_t));
         int bfs_head = 0, bfs_tail = 0;
-        bfs_queue[bfs_tail++] = db.entry_point;
-        bfs_visited[db.entry_point] = 1;
+
+        uint16_t ep = db.entry_point;
+        bfs_visited[ep >> 3] |= (1 << (ep & 7));
+        bfs_queue[bfs_tail++] = ep;
+
         while (bfs_head < bfs_tail) {
-            uint8_t n = bfs_queue[bfs_head++];
-            for (int i = 0; i < nodes[n].neighbor_count; i++) {
-                uint8_t nb = nodes[n].neighbors[i];
-                if (!bfs_visited[nb]) {
-                    bfs_visited[nb] = 1;
+            uint16_t n = bfs_queue[bfs_head++];
+            for (int i = 0; i < db.topo_array[n].neighbor_count; i++) {
+                uint16_t nb = db.topo_array[n].neighbors[i];
+                if (!(bfs_visited[nb >> 3] & (1 << (nb & 7)))) {
+                    bfs_visited[nb >> 3] |= (1 << (nb & 7));
                     bfs_queue[bfs_tail++] = nb;
                 }
             }
         }
+
         int reachable = 0;
         for (int i = 0; i < N; i++)
-            if (bfs_visited[i]) reachable++;
+            if (bfs_visited[i >> 3] & (1 << (i & 7))) reachable++;
 
         /* Count bidirectional edges and neighbor stats */
         int bidir = 0, total_edges = 0;
-        int nbr_hist[9] = {0};  /* histogram of neighbor counts 0..8 */
+        int nbr_hist[9] = {0};
         for (int i = 0; i < N; i++) {
-            int nc = nodes[i].neighbor_count;
+            int nc = db.topo_array[i].neighbor_count;
             if (nc <= 8) nbr_hist[nc]++;
             for (int j = 0; j < nc; j++) {
                 total_edges++;
-                uint8_t nb = nodes[i].neighbors[j];
-                for (int k2 = 0; k2 < nodes[nb].neighbor_count; k2++) {
-                    if (nodes[nb].neighbors[k2] == i) { bidir++; break; }
+                uint16_t nb = db.topo_array[i].neighbors[j];
+                for (int k2 = 0; k2 < db.topo_array[nb].neighbor_count; k2++) {
+                    if (db.topo_array[nb].neighbors[k2] == (uint16_t)i) { bidir++; break; }
                 }
             }
         }
 
-        /* Average neighbor count */
         double avg_nbr = (double)total_edges / N;
 
-        printf("N=%3d | reachable=%d/%d | edges=%d (%.0f%% bidir) | avg_nbr=%.1f\n",
-               N, reachable, N, total_edges, 100.0 * bidir / total_edges, avg_nbr);
-        printf("       nbr_hist: ");
+        printf("N=%4d | reach=%d/%d | edges=%d (%.0f%% bidir) | avg_nbr=%.1f\n",
+               N, reachable, N, total_edges,
+               total_edges > 0 ? 100.0 * bidir / total_edges : 0.0, avg_nbr);
+        printf("        topo=%.1fKB vec=%.1fKB total=%.1fKB\n",
+               (double)N * 32 / 1024.0,
+               (double)N * 64 / 1024.0,
+               (double)N * 96 / 1024.0);
+        printf("        nbr_hist: ");
         for (int i = 0; i <= 8; i++)
             if (nbr_hist[i]) printf("%d:%d ", i, nbr_hist[i]);
         printf("\n");
@@ -147,18 +160,18 @@ int main(void) {
                 rand_vector(query);
 
                 /* HNSW search */
-                uint8_t hnsw_ids[16];
+                uint16_t hnsw_ids[16];
                 int32_t hnsw_scores[16];
                 memset(hnsw_ids, 0xFF, sizeof(hnsw_ids));
-                lcvdb_search(&db, query, k, hnsw_ids, hnsw_scores);
+                int nresults = lcvdb_search(&db, query, k, hnsw_ids, hnsw_scores);
 
                 /* Brute force */
-                uint8_t bf_ids[16];
-                brute_force_topk(query, vecs, N, k, bf_ids);
+                uint16_t bf_ids[16];
+                brute_force_topk(query, vecs_flat, N, k, bf_ids);
 
-                /* Count hits: how many of brute-force top-k are in HNSW results */
+                /* Count hits */
                 for (int i = 0; i < k; i++) {
-                    for (int j = 0; j < k; j++) {
+                    for (int j = 0; j < nresults; j++) {
                         if (hnsw_ids[j] == bf_ids[i]) {
                             total_hits++;
                             break;
@@ -168,13 +181,16 @@ int main(void) {
                 total_possible += k;
             }
 
-            double recall = (double)total_hits / total_possible;
-            printf("       recall@%d = %.1f%% (%d/%d)\n",
-                   k, 100.0 * recall, total_hits, total_possible);
+            printf("        recall@%d = %.1f%% (%d/%d)\n",
+                   k, 100.0 * total_hits / total_possible, total_hits, total_possible);
         }
 
         printf("\n");
-        free(node_buf);
+        free(bfs_visited);
+        free(bfs_queue);
+        free(vecs_flat);
+        free(topo_buf);
+        free(vec_buf);
     }
 
     return 0;

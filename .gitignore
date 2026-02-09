@@ -5,6 +5,15 @@
 *.so
 *.dylib
 
+# Cross-compiled AArch64 binaries (extensionless)
+l3_prefetch_probe
+membw_test
+research/lcvdb/test_lcvdb
+research/lcvdb/test_recall
+research/lcvdb/test_bench
+research/lcvdb/gpu_probe
+research/lcvdb/gpu_bench
+
 # Test binary, built with `go test -c`
 *.test
 
