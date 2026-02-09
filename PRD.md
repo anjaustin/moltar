@@ -2,7 +2,7 @@
 
 ## What Moltar Is
 
-Moltar is an embedded AI platform for running LLM inference on a **Motorola Moto G Power 5G (2023)** — a $200 phone with a MediaTek Dimensity 930 SoC. The goal is maximum tokens-per-second for Liquid AI's LFM2 models, plus a vector database that fits entirely in CPU cache.
+Moltar is an embedded AI platform for running LLM inference on a **Motorola Moto G Power 5G (2023)** — a $99 phone with a MediaTek Dimensity 930 SoC. The goal is maximum tokens-per-second for Liquid AI's LFM2 models, plus on-device retrieval-augmented generation (RAG) using ColBERT late-interaction embeddings.
 
 **Target device**: Motorola Moto G Power 5G 2023 (codename `devonn`, SKU `XT2311-4`)
 - **SoC**: MediaTek MT6855V / Dimensity 930
@@ -22,10 +22,10 @@ Custom llama.cpp fork with hand-tuned kernels for the MT6855V. All optimizations
 
 | Model | Quant | Size | tok/s (tg32) |
 |-------|-------|------|-------------|
-| LFM2-350M | Q4_0 | 190 MiB | **80.06** |
-| LFM2-350M | Q8_0 | 359 MiB | **41.69** |
-| LFM2-700M | Q4_0 | 423 MiB | **32.96** |
-| LFM2-1.2B | Q4_0 | 661 MiB | **21.66** |
+| LFM2-350M | Q4_0 | 190 MiB | **77.1** |
+| LFM2-350M | Q8_0 | 359 MiB | **40.9** |
+| LFM2-700M | Q4_0 | 423 MiB | **33.0** |
+| LFM2-1.2B | Q4_0 | 661 MiB | **21.3** |
 
 **Key discovery**: Android framework (SurfaceFlinger, SystemUI) consumes ~4 GB/s of DRAM bandwidth. Running `su -c 'stop'` frees this bandwidth and eliminates the "thermal throttling" we originally diagnosed. A Magisk boot script at `/data/adb/service.d/moltar_perf.sh` auto-stops Android on boot.
 
@@ -36,17 +36,50 @@ Custom llama.cpp fork with hand-tuned kernels for the MT6855V. All optimizations
 4. Power-of-2 shift activation quantization — IEEE754 bit manipulation
 5. GEMM dispatch for prompt processing — 4 activation rows with weight reuse
 6. Barrier-skip, graph dispatch fast path, thread 1 fast-forward
-7. Inlined GEMV in TG fast path, activation quant caching
+7. Inlined GEMV in TG fast path
 8. NEON vectorization of binary-ops, RMS_NORM, SSM_CONV, CONCAT
+
+**Bug fix**: An activation quantization cache keyed on `src1->data` pointer was producing stale results due to buffer address reuse by the allocator. This caused gibberish output despite correct speed measurements. Fixed by removing the cache (2-4% throughput cost, previous numbers were inflated).
 
 **Modified files**:
 - `ggml/src/ggml-cpu/repack.h` — block structs + function declarations
 - `ggml/src/ggml-cpu/repack.cpp` — repack functions, tensor_traits, forward_mul_mat
 - `ggml/src/ggml-cpu/arch/arm/repack.cpp` — NEON DOTPROD GEMV/GEMM kernels
 
+### ColBERT RAG Pipeline (`research/colbert/`)
+
+On-device retrieval-augmented generation using **LFM2-ColBERT-350M** for late-interaction embeddings and **LFM2-1.2B** for generation. Tested end-to-end on device.
+
+**Architecture**: ColBERT produces per-token 128D float embeddings. Documents are chunked, embedded, quantized to int8, and indexed. At query time, MaxSim scoring (max over document tokens of dot product with each query token, summed across query tokens) ranks chunks. Top-k chunks are injected into an LLM prompt for grounded generation.
+
+**Latency budget** (measured on device):
+
+| Step | Time |
+|------|------|
+| Embed query (8-15 tokens) | ~66 ms |
+| MaxSim search (10 chunks) | ~15 ms |
+| LLM generate (LFM2-1.2B Q4_0) | ~seconds |
+| **Total** | **~2 s for short answer** |
+
+**Files**:
+- `colbert.h` — 128D int8 token embeddings, document index, MaxSim API
+- `colbert.c` — C implementation: init, quantize f32->i8, add_doc, search with top-k heap
+- `maxsim_neon.S` — NEON assembly: `colbert_dot_i8` (128D SDOT), `colbert_maxsim_i8` (full MaxSim)
+- `test_colbert.c` — 4 correctness tests + benchmark (all pass on device)
+- `moltar_rag.c` — Search tool: parses raw embedding files, runs MaxSim, outputs ranked results
+- `moltar_rag.sh` — Shell orchestrator: `ingest`, `query`, `demo` commands
+- `knowledge/moltar.txt` — Sample knowledge base about the Moltar project
+- `Makefile` — Builds with `aarch64-linux-gnu-gcc -static`
+
+**Models**:
+- `LFM2-ColBERT-350M-Q4_0.gguf` (209 MB) — embedding model
+- `LFM2-1.2B-Q4_0.gguf` (661 MB) — generation model
+
+**Note**: The two models run sequentially (not enough RAM for both + KV cache simultaneously).
+
 ### L-Cache VDB (`research/lcvdb/`)
 
-A vector database engine targeting CPU L-cache residency. HNSW graph search with NEON assembly distance functions. Just completed a redesign from monolithic 64-byte nodes to **split storage** (separate topology + vector arrays).
+A vector database engine targeting CPU L-cache residency. HNSW graph search with NEON assembly distance functions. Split storage design (separate topology + vector arrays). **Not used by the ColBERT RAG pipeline** — ColBERT uses per-token 128D embeddings with MaxSim scoring, which is architecturally different from single-vector HNSW search.
 
 **Architecture** (split storage, current):
 - **Topology array** (`lcvdb_topo_t`, 32 bytes/node): graph edges, neighbor IDs (uint16 x 8), flags, payload_id
@@ -77,65 +110,20 @@ A vector database engine targeting CPU L-cache residency. HNSW graph search with
 
 ## Next Steps
 
-### P0 — VDB: Fix Recall at Large N
+### P0 — RAG: Knowledge Base Expansion + Quality
 
-**Problem**: Recall drops from 99.6% at N=256 to 84.8% at N=512 and 81.2% at N=1024. Graph connectivity also degrades (1018/1024 reachable at N=1024).
+**Status**: ColBERT RAG pipeline works end-to-end. Current knowledge base is a single file (`knowledge/moltar.txt`, 10 chunks). Next steps:
 
-**Root cause**: `build_ref.c` uses brute-force scan of ALL existing nodes to find 16 candidates (CAND_MAX=16). This is both slow (O(N) per insert, O(N^2) total build) and insufficient — at large N, 16 candidates from a global scan doesn't provide enough local diversity for the HNSW heuristic.
-
-**Fix**: Replace brute-force candidate collection with **HNSW-style beam search during insert** (standard HNSW Algorithm 2). Use the existing graph to find neighbors, not a full scan. This:
-- Reduces insert from O(N) to O(log N) per node
-- Improves recall because candidates are locally relevant, not globally top-16
-- Fixes connectivity because the search naturally explores connected regions
-- Enables scaling to N=4096+ without quadratic build time
-
-**Acceptance criteria**:
-- recall@5 >= 95% at N=1024
-- recall@5 >= 90% at N=4096
-- 100% graph reachability at all N
-- Build time for N=1024 under 10 ms
-
-### P0 — VDB: Port to NEON Assembly
-
-**Problem**: `build_ref.c` uses scalar C dot products during insert. `search_ref.c` already uses NEON (via `lcvdb_dot_i8` from `distance.S`), but the build path doesn't.
-
-**Fix**: After the recall fix is validated in C, port `init_ref.c`, `build_ref.c`, and `search_ref.c` to AArch64 assembly using split storage offsets:
-
-```
-DB struct offsets:      Topo node offsets:     Vec slot offsets:
-  +0: node_count (u32)   +0: neighbors (u16x8)   +0: vector (i8x48)
-  +4: entry_point (u16)  +16: nbr_count (u8)
-  +6: max_level (u8)     +17: max_layer (u8)
-  +7: M (u8)             +18: flags (u16)
-  +8: topo_array (ptr)   +20: payload_id (u32)
-  +16: vec_array (ptr)
-  +24: max_nodes (u32)   Address: topo_array + id << 5
-  +28: prng_state (u32)  Address: vec_array + id << 6
-```
-
-Key changes from old assembly: `ldrh`/`strh` for uint16 neighbor IDs (was `ldrb`/`strb`), separate topo/vec array base pointers, wider ID fields in candidate pools.
+**Work**:
+- Expand knowledge base with more documents/domains
+- Evaluate retrieval quality with diverse queries
+- Tune chunk size and overlap for better context
+- Benchmark MaxSim scaling at 100+ chunks (currently brute-force, O(N))
+- Consider GPU-accelerated MaxSim for large indices
 
 **Acceptance criteria**:
-- Identical recall to C reference at all N
-- Search latency at N=256 <= 19 us (matching or beating old assembly)
-- Insert uses NEON dot products (measured speedup vs C scalar)
-
-### P1 — VDB: GPU Async Search
-
-**Problem**: When the CPU is running LLM inference (which saturates both A78 cores), VDB searches block. The PowerVR GPU sits idle during token generation.
-
-**Opportunity**: Dispatch VDB search to GPU via OpenCL while CPU does LLM inference. GPU dispatch overhead is ~40 us (too slow for standalone use), but if overlapped with a 12-50 ms token generation step, the latency is free.
-
-**Design**:
-- OpenCL kernel for int8 dot product already written and verified (`gpu_dot.cl`)
-- GPU probe confirms: 128-wide SIMD, 28 KB local mem, OpenCL 3.0
-- Implement: enqueue search before LLM token gen, read results after
-- CPU remains primary path for standalone VDB queries
-
-**Acceptance criteria**:
-- GPU search returns correct results (matches CPU brute-force)
-- GPU search completes within one LLM token generation step
-- No interference with LLM inference throughput
+- Coherent, grounded answers across multiple knowledge domains
+- Retrieval latency < 100 ms at 100 chunks
 
 ### P1 — LLM: LFM2.5-1.2B-Thinking Support
 
@@ -145,24 +133,9 @@ Key changes from old assembly: `ldrh`/`strh` for uint16 neighbor IDs (was `ldrb`
 - Benchmark tg32 performance (expect ~21 tok/s, similar to LFM2-1.2B)
 - Validate output quality
 - Test thinking/reasoning traces
+- Integrate with RAG pipeline as generation model
 
-### P2 — Integration: LLM + VDB Pipeline
-
-**Goal**: RAG (Retrieval-Augmented Generation) pipeline running entirely on-device.
-
-**Design**:
-1. User query → quantize to int8 embedding (using LFM2-350M hidden states or a small encoder)
-2. VDB search → retrieve top-k relevant chunks (payload_id maps to text)
-3. Construct prompt with retrieved context
-4. LFM2-1.2B generates response
-
-**Open questions**:
-- How to produce int8 48D embeddings from LFM2 hidden states (768D float → 48D int8)
-- Whether to use a separate small encoder or reuse LFM2-350M
-- Context window management for retrieved chunks
-- Memory budget: VDB (96 KB for 1024 chunks) + LFM2-1.2B (661 MiB) + prompt = well within 6 GB
-
-### P2 — LLM: Further Bandwidth Optimization
+### P1 — LLM: Further Bandwidth Optimization
 
 **Current bottleneck**: DRAM bandwidth. At 15.5 GB/s sustained, a 661 MiB model reads at ~21 tok/s. The only way to go faster is to reduce bytes read per token.
 
@@ -172,12 +145,38 @@ Key changes from old assembly: `ldrh`/`strh` for uint16 neighbor IDs (was `ldrb`
 - **KV cache quantization**: Reduce KV cache memory to keep more in cache.
 - **Sliding window attention**: LFM2 uses SSM (state-space), not attention — already has O(1) state. This may already be optimal.
 
+### P2 — VDB: Fix Recall at Large N
+
+**Problem**: LCVDB recall drops from 99.6% at N=256 to 84.8% at N=512. Not currently blocking (ColBERT RAG uses brute-force MaxSim, not HNSW), but needed if LCVDB is used for other retrieval tasks.
+
+**Fix**: Replace brute-force candidate collection with HNSW beam search during insert.
+
+**Acceptance criteria**:
+- recall@5 >= 95% at N=1024
+- 100% graph reachability at all N
+
+### P2 — VDB: GPU Async Search
+
+**Problem**: When the CPU is running LLM inference (which saturates both A78 cores), VDB searches block. The PowerVR GPU sits idle during token generation.
+
+**Opportunity**: Dispatch VDB search or MaxSim scoring to GPU via OpenCL while CPU does LLM inference. GPU dispatch overhead is ~40 us (too slow for standalone use), but if overlapped with a 12-50 ms token generation step, the latency is free.
+
+**Design**:
+- OpenCL kernel for int8 dot product already written and verified (`gpu_dot.cl`)
+- GPU probe confirms: 128-wide SIMD, 28 KB local mem, OpenCL 3.0
+- Implement: enqueue search before LLM token gen, read results after
+- CPU remains primary path for standalone queries
+
 ### P3 — Multi-Device Support
 
 Moltar currently targets exactly one phone. Future devices to consider:
 - Other MediaTek Dimensity phones (similar ISA, different cache sizes)
 - Snapdragon devices (Hexagon DSP available, different NEON extensions)
 - Raspberry Pi 5 (Cortex-A76, similar ISA, useful for development)
+
+### Completed
+
+- **P2 — Integration: LLM + RAG Pipeline** — DONE. Implemented using ColBERT late-interaction retrieval (not LCVDB HNSW). See ColBERT RAG section above.
 
 ---
 
@@ -198,34 +197,48 @@ These were investigated and conclusively ruled out:
 - **Thermal emulation / DRAM thermal throttling hypothesis** — disproven (it was Android framework bandwidth)
 - **GPU for VDB latency at small N** — 40+ us dispatch overhead exceeds CPU search time
 - **Older NEON search.S** — has beam management bug, not worth fixing (rewrite from scratch)
+- **NEON assembly port of LCVDB search** — `-ffixed-v0/v1/v2` constraint costs more than preloaded query saves
+- **Inline asm dot product in search_neon.c** — 4% slower than C ref
+- **Activation quant caching** — cache keyed on `src1->data` pointer; allocator reuses buffer addresses for different tensors, causing stale quantized activations and gibberish output. Removed entirely (2-4% throughput cost; old numbers were inflated by the bug)
 
 ---
 
 ## Build & Deploy
 
 ```bash
+# Cross-compile ColBERT tools (from x86_64 host)
+cd research/colbert
+make clean all   # builds test_colbert, moltar_rag
+
 # Cross-compile VDB (from x86_64 host)
 cd research/lcvdb
-make all
+make all   # builds test_lcvdb, test_recall, test_bench
 
-# Deploy to device
-adb push test_lcvdb test_recall test_bench /data/local/tmp/
+# Cross-compile LLM (llama.cpp for Android)
+cd research/llama.cpp
+cmake -B build-android \
+  -DCMAKE_TOOLCHAIN_FILE=/opt/android-ndk-r27c/build/cmake/android.toolchain.cmake \
+  -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-33
+cmake --build build-android --target llama-cli llama-bench llama-embedding -j$(nproc)
+
+# Deploy everything to device
+adb push research/llama.cpp/build-android/bin/{llama-cli,llama-bench,llama-embedding} /data/local/tmp/
+adb push research/llama.cpp/build-android/bin/lib*.so /data/local/tmp/
+adb push research/colbert/{moltar_rag,test_colbert,moltar_rag.sh} /data/local/tmp/
+adb push research/lcvdb/{test_lcvdb,test_recall,test_bench} /data/local/tmp/
 
 # Setup perf mode on device
 adb shell "su -c 'echo performance > /sys/devices/system/cpu/cpu6/cpufreq/scaling_governor'"
 adb shell "su -c 'echo performance > /sys/devices/system/cpu/cpu7/cpufreq/scaling_governor'"
 adb shell "su -c 'stop'"  # kill Android framework, free ~4 GB/s DRAM BW
 
-# Run on big cores
+# Run RAG demo
+adb shell "su -c 'sh /data/local/tmp/moltar_rag.sh demo'"
+
+# Run VDB tests on big cores
 adb shell "su -c 'taskset c0 /data/local/tmp/test_lcvdb'"
 adb shell "su -c 'taskset c0 /data/local/tmp/test_recall'"
 adb shell "su -c 'taskset c0 /data/local/tmp/test_bench'"
-
-# Cross-compile LLM (llama.cpp)
-cd research/llama.cpp
-cmake -B build -DCMAKE_TOOLCHAIN_FILE=/opt/android-ndk-r27c/build/cmake/android.toolchain.cmake \
-      -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-33
-cmake --build build --target llama-cli -j$(nproc)
 ```
 
 ## Toolchain

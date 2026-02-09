@@ -10,10 +10,12 @@ Custom llama.cpp fork with row-scaled quantization and NEON DOTPROD GEMV/GEMM ke
 
 | Model | Quant | Weight size | tok/s | GB/s DRAM | Bottleneck |
 |-------|-------|-------------|-------|-----------|------------|
-| LFM2-350M | Q4_0 | 190 MiB | **80.06** | 15.0 | DRAM BW |
-| LFM2-350M | Q8_0 | 359 MiB | **41.69** | 14.7 | DRAM BW |
-| LFM2-700M | Q4_0 | 423 MiB | **32.96** | 13.7 | DRAM BW |
-| LFM2-1.2B | Q4_0 | 661 MiB | **21.66** | 14.1 | DRAM BW |
+| LFM2-350M | Q4_0 | 190 MiB | **77.1** | 14.4 | DRAM BW |
+| LFM2-350M | Q8_0 | 359 MiB | **40.9** | 14.4 | DRAM BW |
+| LFM2-700M | Q4_0 | 423 MiB | **33.0** | 13.7 | DRAM BW |
+| LFM2-1.2B | Q4_0 | 661 MiB | **21.3** | 13.8 | DRAM BW |
+
+**Note**: Numbers corrected after removing a buggy activation quantization cache that was inflating throughput by 2-4% while producing gibberish output (see Changelog).
 
 All models are DRAM-bandwidth-bound during token generation. The sustained DRAM bandwidth of the MT6855V with Android stopped is **15.5 GB/s** (2 threads, LPDDR4X @ 4266 MHz).
 
@@ -34,10 +36,12 @@ GEMM kernels process 4 activation rows simultaneously with weight reuse.
 | Pure-integer SDOT GEMV | ~56 | correctness, no speed change |
 | GEMM dispatch (pp) | ~56 tg / 304 pp | 3x prompt speedup |
 | Barrier-skip | 56.8 | +1.4% |
-| Graph dispatch + thread fast-forward + quant caching | 58.3 | +2.6% |
-| **Android framework stopped** | **80.06** | **+37%** |
+| Graph dispatch + thread fast-forward | 58.3 | +2.6% |
+| **Android framework stopped** | **77.1** | **+32%** |
 
-The single biggest gain was discovering that Android framework processes consume ~4 GB/s of DRAM bandwidth. Stopping them (`su -c 'stop'`) immediately raised throughput from 58 to 80 tok/s.
+The single biggest gain was discovering that Android framework processes consume ~4 GB/s of DRAM bandwidth. Stopping them (`su -c 'stop'`) immediately raised throughput from 58 to 77 tok/s.
+
+**Note**: An earlier "activation quant caching" optimization was removed — it caused stale quantized activations due to buffer address reuse by the allocator, producing gibberish output. The 2-4% "speedup" came from skipping re-quantization with stale data.
 
 ### Kernel Breakdown (simpleperf)
 
@@ -103,6 +107,31 @@ Build is O(N^2) due to brute-force candidate scan. Same fix as recall: HNSW sear
 | 65534 | 2 MB | 4 MB | 6 MB | DRAM |
 
 During search, only topology is traversed continuously. Vectors are loaded on-demand for distance computation. Effective hot working set = topology array only.
+
+## ColBERT RAG Pipeline
+
+End-to-end on-device retrieval-augmented generation using LFM2-ColBERT-350M (Q4_0, 209 MB) for embedding and LFM2-1.2B (Q4_0, 661 MB) for generation.
+
+### Latency Budget
+
+| Step | Time | Notes |
+|------|------|-------|
+| Embed query (8-15 tokens) | ~66 ms | LFM2-ColBERT-350M Q4_0 |
+| MaxSim search (10 chunks) | ~15 ms | Brute-force, NEON SDOT |
+| LLM generate (short answer) | ~1-2 s | LFM2-1.2B Q4_0, ~21 tok/s |
+| **Total (short answer)** | **~2 s** | |
+
+### MaxSim Scoring
+
+ColBERT uses late-interaction scoring: each query token's 128D embedding is dotted against all document token embeddings, taking the max per document token, then summing across query tokens.
+
+- **NEON kernel**: `colbert_maxsim_i8` in `maxsim_neon.S` — uses SDOT for 128D int8 dot products
+- **Quantization**: float32 embeddings quantized to int8 per-vector (max-abs scaling)
+- **Scaling**: O(Q * D * T) where Q=query tokens, D=documents, T=avg tokens/doc. Currently brute-force over all documents.
+
+### ColBERT Correctness Tests (on device)
+
+All 4 tests pass: dot product, MaxSim scoring, quantization, search ranking.
 
 ## DRAM Bandwidth
 

@@ -1,6 +1,6 @@
 # Architecture
 
-Moltar has two compute engines — LLM inference and vector search — both optimized for the MT6855V's memory hierarchy.
+Moltar has three compute engines — LLM inference, ColBERT retrieval, and vector search — all optimized for the MT6855V's memory hierarchy.
 
 ## Target Hardware
 
@@ -65,7 +65,6 @@ Prompt processing has activation reuse across multiple tokens.
 - **Barrier-skip**: skip pthread barriers when only 1 thread has work
 - **Graph dispatch fast path**: bypass scheduler overhead for simple graphs
 - **Thread 1 fast-forward**: main thread starts compute before worker is signaled
-- **Activation quant caching**: quantize activations once, reuse across GEMV calls
 
 ### Modified Files
 
@@ -77,9 +76,83 @@ ggml/src/ggml-cpu/
     └── repack.cpp        # NEON DOTPROD GEMV/GEMM implementations
 ```
 
+## ColBERT RAG Pipeline
+
+Located in `research/colbert/`. On-device retrieval-augmented generation using ColBERT late-interaction embeddings.
+
+### Pipeline Architecture
+
+```
+User query
+    │
+    ▼
+┌──────────────────────┐
+│  LFM2-ColBERT-350M   │  Embed query → per-token 128D float vectors
+│  (Q4_0, 209 MB)      │  ~66 ms for 8-15 tokens
+└──────────┬───────────┘
+           │ quantize to int8
+           ▼
+┌──────────────────────┐
+│  MaxSim Search       │  Brute-force over all document chunks
+│  (NEON SDOT)         │  ~15 ms for 10 chunks
+└──────────┬───────────┘
+           │ top-k chunk text
+           ▼
+┌──────────────────────┐
+│  LFM2-1.2B           │  Generate answer with retrieved context
+│  (Q4_0, 661 MB)      │  ~21 tok/s
+└──────────────────────┘
+```
+
+**Key constraint**: The two models run sequentially. ColBERT (209 MB) + LFM2-1.2B (661 MB) + KV cache would exceed available memory, so `moltar_rag.sh` runs embedding and generation as separate subprocess calls.
+
+### ColBERT Late Interaction
+
+Unlike single-vector embedding models, ColBERT produces **one 128D vector per token**. Scoring uses MaxSim:
+
+```
+score(Q, D) = Σ_q max_d (q · d)
+```
+
+For each query token embedding `q`, find the maximum dot product against all document token embeddings `d`, then sum across query tokens. This captures fine-grained token-level semantic matching.
+
+### MaxSim Implementation
+
+**Index structure** (`colbert.h`):
+- Per-document: array of 128D int8 token embeddings + token count
+- Global index: array of document entries, manifest file mapping chunk IDs to text files
+
+**NEON kernel** (`maxsim_neon.S`):
+- `colbert_dot_i8`: 128D int8 dot product using 8x SDOT instructions
+- `colbert_maxsim_i8`: full MaxSim scoring — iterates query tokens, finds max dot per document token, accumulates sum
+
+**Quantization**: float32 embeddings → int8 via per-vector max-abs scaling (in `colbert.c`). Preserves relative ordering for ranking.
+
+### Orchestration (`moltar_rag.sh`)
+
+Shell script handling the full pipeline on device:
+1. **`ingest`**: Chunk text files → embed with `llama-embedding --embd-output-format raw` → store `.txt` + `.emb` pairs
+2. **`query`**: Embed query → `moltar_rag` MaxSim search → extract top-k chunk text → construct prompt → `llama-cli --single-turn` generation
+3. **`demo`**: Run predefined queries to validate pipeline
+
+### Files
+
+```
+research/colbert/
+├── colbert.h           # Index structs, MaxSim API
+├── colbert.c           # Init, quantize, add_doc, search
+├── maxsim_neon.S       # NEON SDOT: colbert_dot_i8, colbert_maxsim_i8
+├── test_colbert.c      # 4 correctness tests + benchmark
+├── moltar_rag.c        # Search binary (parses embeddings, runs MaxSim)
+├── moltar_rag.sh       # Shell orchestrator (ingest, query, demo)
+├── knowledge/
+│   └── moltar.txt      # Sample knowledge base
+└── Makefile            # Cross-compile with aarch64-linux-gnu-gcc -static
+```
+
 ## L-Cache Vector Database
 
-Located in `research/lcvdb/`. An HNSW vector database designed to fit entirely in CPU cache.
+Located in `research/lcvdb/`. An HNSW vector database designed to fit entirely in CPU cache. **Not used by the ColBERT RAG pipeline** — ColBERT uses per-token 128D embeddings with MaxSim scoring, architecturally different from single-vector HNSW.
 
 ### Split Storage Layout
 

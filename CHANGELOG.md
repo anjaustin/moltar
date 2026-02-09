@@ -3,6 +3,38 @@
 ## [Unreleased]
 
 ### Added
+- **ColBERT RAG pipeline** (`research/colbert/`) — on-device retrieval-augmented generation using LFM2-ColBERT-350M for late-interaction embeddings and LFM2-1.2B for generation
+  - `colbert.h`, `colbert.c` — ColBERT index: 128D int8 token embeddings, MaxSim scoring, top-k heap search
+  - `maxsim_neon.S` — NEON SDOT assembly for 128D int8 dot products and full MaxSim scoring
+  - `test_colbert.c` — 4 correctness tests + benchmark (all pass on device)
+  - `moltar_rag.c` — Search binary: parses raw embeddings, runs MaxSim, outputs ranked results
+  - `moltar_rag.sh` — Shell orchestrator: `ingest`, `query`, `demo` commands
+  - `knowledge/moltar.txt` — Sample knowledge base
+- **LFM2-ColBERT-350M model conversion** — HuggingFace download, GGUF F16 conversion, Q4_0 quantization (209 MB)
+
+### Fixed
+- **Activation quantization cache bug** — cache in `repack.cpp` keyed on `src1->data` pointer. The llama.cpp allocator reuses buffer addresses for different tensors, causing stale quantized activations to be used. All models produced gibberish output despite correct speed measurements. Fixed by removing the cache entirely.
+  - Corrected benchmarks: LFM2-350M Q4_0 77.1 (was 80.1), Q8_0 40.9 (was 41.7), LFM2-1.2B Q4_0 21.3 (was 21.7)
+  - 2-4% throughput cost — previous numbers were inflated by the bug
+- **`--no-repack` workaround** removed from RAG pipeline after cache fix
+
+### Changed
+- **PRD.md** — added ColBERT RAG section, corrected benchmarks, updated priorities (P2 Integration marked DONE), added cache bug to Dead Ends
+- **PERFORMANCE.md** — corrected LLM numbers, added ColBERT RAG latency section
+- **ARCHITECTURE.md** — added ColBERT RAG architecture section
+- **README.md** — added RAG pipeline, corrected benchmark numbers, updated repo structure
+
+### Verified on Device
+- ColBERT RAG end-to-end: embed query (~66 ms) + MaxSim search (~15 ms) + LLM generate (~2 s for short answer)
+- 3 demo queries producing coherent, context-grounded answers
+- All 4 ColBERT correctness tests pass
+- LLM inference produces correct (non-gibberish) output after cache fix
+
+---
+
+## Previous — L-Cache VDB Split Storage
+
+### Added
 - **L-Cache VDB split storage redesign** — separate topology (32B/node) and vector (64B/node) arrays, uint16 IDs (max 65534 nodes), tombstone delete, payload IDs
 - **C reference implementations** — `init_ref.c`, `build_ref.c`, `search_ref.c` replace old assembly for split storage layout
 - **VDB test suite** — `test_lcvdb.c` (7 correctness tests), `test_recall.c` (N=32..1024), `test_bench.c` (latency + throughput)
@@ -12,10 +44,6 @@
 - **lcvdb.h** — rewritten for split storage: `lcvdb_topo_t` (32B), `lcvdb_vec_t` (64B), new `lcvdb_t` struct with separate array pointers
 - **search_ref.c** — rewritten for uint16 IDs, split array access, skip deleted nodes, return count
 - **Makefile** — updated for C reference files (init_ref.c, build_ref.c, search_ref.c), builds all three test binaries
-- **README.md** — rewritten with actual performance numbers and repo structure
-- **PERFORMANCE.md** — rewritten with measured benchmarks (LLM + VDB)
-- **ARCHITECTURE.md** — rewritten with actual system design
-- **CHANGELOG.md** — rewritten with real commit history
 
 ### Verified on Device
 - All 7 VDB correctness tests pass (distance, insert, vector integrity, payload IDs, connectivity, search, delete)
@@ -65,15 +93,15 @@
 - HNSW graph with 48D int8 vectors, M=8
 
 ### Measured
-- LFM2-350M Q8_0: 41.69 tok/s
+- LFM2-350M Q8_0: 40.9 tok/s (corrected after cache fix)
 
-## 0db4425 — Graph dispatch + fast-forward + quant caching (2026-02-06)
+## 0db4425 — Graph dispatch + fast-forward (2026-02-06)
 
 ### Added
 - **Graph dispatch fast path** — bypass scheduler overhead for simple graphs
 - **Thread 1 fast-forward** — main thread starts compute before worker is signaled
-- **Activation quant caching** — quantize once, reuse across GEMV calls
 - **TG fast path** — inlined GEMV for token generation
+- ~~**Activation quant caching**~~ — REMOVED in later commit (caused stale data due to pointer reuse)
 
 ### Measured
 - LFM2-350M Q4_0: 56.8 -> 58.3 tok/s (+2.6%)
@@ -114,5 +142,5 @@
 - Magisk boot script at `/data/adb/service.d/moltar_perf.sh`
 
 ### Measured
-- LFM2-350M Q4_0: 58 -> 80 tok/s with Android stopped (+37%)
+- LFM2-350M Q4_0: 58 -> 77 tok/s with Android stopped (+32%, corrected after cache fix)
 - DRAM bandwidth: 11 GB/s -> 15.5 GB/s (2 threads, Android stopped)
