@@ -262,12 +262,13 @@ static int cmd_search(const char *query_emb_path, const char *index_dir,
             float centered = (float)per_token[q][c] - per_token_mean[q];
 
             /*
-             * Variance weighting: multiply centered score by (stdev / max_stdev).
-             * Tokens with high variance (distinctive) get full weight.
-             * Tokens with low variance (common/BOS) get near-zero weight.
-             * This is the key innovation over plain centering.
+             * Variance weighting: multiply centered score by (stdev / max_stdev)^2.
+             * Squaring amplifies the gap between distinctive and common tokens:
+             * a token with 50% of max stdev gets 25% weight instead of 50%.
+             * This prevents common query tokens from overwhelming rare ones.
              */
-            float w = (max_stdev > 0.0f) ? (per_token_std[q] / max_stdev) : 1.0f;
+            float r = (max_stdev > 0.0f) ? (per_token_std[q] / max_stdev) : 1.0f;
+            float w = r * r;
             fscore += w * centered;
         }
 

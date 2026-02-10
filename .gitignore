@@ -19,6 +19,7 @@ research/colbert/test_colbert
 research/colbert/moltar_rag
 research/memory/test_project
 research/memory/moltar-agent
+research/memory/moltar-server
 
 # Test binary, built with `go test -c`
 *.test

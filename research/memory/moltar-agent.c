@@ -54,7 +54,7 @@
 #define RAG_EMBEDDING   RAG_BASE "/llama-embedding"
 #define RAG_SEARCH      RAG_BASE "/moltar_rag"
 #define RAG_INDEX       RAG_BASE "/rag_index"
-#define RAG_TOP_K       3        /* top-K knowledge chunks to retrieve      */
+#define RAG_TOP_K      5        /* top-K knowledge chunks to retrieve      */
 
 /* ---------- Turn storage ---------- */
 
@@ -308,6 +308,7 @@ static void print_usage(const char *argv0) {
         "  --top-k N    top-k sampling (default: 40)\n"
         "  --top-p F    top-p sampling (default: 0.9)\n"
         "  --no-memory  disable LCVDB working memory\n"
+        "  --no-think   suppress <think> block in thinking models\n"
         "  --rag        enable ColBERT knowledge retrieval\n"
         "  --no-rag     disable ColBERT knowledge retrieval (default)\n"
         "  --rag-index DIR  RAG index directory (default: %s)\n"
@@ -337,71 +338,77 @@ static void print_usage(const char *argv0) {
  * BOS token (id=1) is added automatically by llama_tokenize(add_special=true).
  * The model generates until <|im_end|> (token 7, EOG).
  */
+static int g_no_think = 0;  /* suppress <think> in thinking models */
+
 static int build_prompt(char *prompt, int prompt_max,
                         const char *user_input,
                         int use_memory,
                         const char *knowledge_ctx) {
     int pos = 0;
 
-    /* System message */
+    /* System message with grounding instructions */
     pos += snprintf(prompt + pos, prompt_max - pos,
         "<|im_start|>system\n"
-        "You are Moltar, a helpful AI assistant running on a Motorola phone. "
-        "Be concise and direct.");
+        "You are Moltar, a concise and accurate AI assistant. "
+        "Answer based on the provided reference information when available. "
+        "If the reference does not answer the question, say so. "
+        "Do not make up facts.");
 
-    /* Knowledge context from ColBERT RAG */
+    /* Knowledge context from ColBERT RAG — clearly delineated */
     if (knowledge_ctx && knowledge_ctx[0]) {
         pos += snprintf(prompt + pos, prompt_max - pos,
-            "\n\nKnowledge base:\n%s", knowledge_ctx);
-    }
-
-    /* Working memory context from LCVDB */
-    if (use_memory && n_turns > 0) {
-        if (n_turns >= 1) {
-            uint16_t last_id = (uint16_t)(n_turns - 1);
-
-            uint16_t result_ids[MAX_CONTEXT + 1];
-            int32_t  result_scores[MAX_CONTEXT + 1];
-            int nresults = lcvdb_search(&vdb,
-                (const int8_t *)((char *)vec_buf + last_id * sizeof(lcvdb_vec_t)),
-                MAX_CONTEXT + 1, result_ids, result_scores);
-
-            int context_count = 0;
-            char context_buf[MAX_TURN_TEXT * MAX_CONTEXT];
-            int ctx_pos = 0;
-            for (int i = 0; i < nresults && context_count < MAX_CONTEXT; i++) {
-                uint16_t tid = result_ids[i];
-                if (tid == last_id) continue;
-                if (tid < MAX_TURNS && turns[tid].valid) {
-                    ctx_pos += snprintf(context_buf + ctx_pos,
-                        sizeof(context_buf) - ctx_pos,
-                        "- %s\n", turns[tid].text);
-                    context_count++;
-                }
-            }
-
-            if (context_count > 0) {
-                pos += snprintf(prompt + pos, prompt_max - pos,
-                    "\n\nRelevant prior conversation:\n%s", context_buf);
-            }
-        }
+            "\n\n## Reference\n%s", knowledge_ctx);
     }
 
     pos += snprintf(prompt + pos, prompt_max - pos, "<|im_end|>\n");
 
-    /* Include most recent turn as a user/assistant exchange for continuity */
-    if (use_memory && n_turns >= 1 && turns[n_turns - 1].valid) {
-        const char *turn_text = turns[n_turns - 1].text;
-        const char *asst_part = strstr(turn_text, "\nAssistant: ");
-        if (asst_part) {
-            const char *user_part = turn_text;
-            if (strncmp(user_part, "User: ", 6) == 0) user_part += 6;
-            int user_len = (int)(asst_part - user_part);
+    /* Working memory: include recent turns as proper ChatML exchanges.
+     * This gives the model real conversation history, not raw text dumps.
+     *
+     * Strategy: include LCVDB-retrieved similar turns (if any) first,
+     * then the most recent turn — all as ChatML user/assistant pairs. */
+    if (use_memory && n_turns > 0) {
+        uint16_t last_id = (uint16_t)(n_turns - 1);
 
-            pos += snprintf(prompt + pos, prompt_max - pos,
-                "<|im_start|>user\n%.*s<|im_end|>\n"
-                "<|im_start|>assistant\n%s<|im_end|>\n",
-                user_len, user_part, asst_part + 12);
+        /* Search LCVDB for related prior turns */
+        uint16_t result_ids[MAX_CONTEXT + 1];
+        int32_t  result_scores[MAX_CONTEXT + 1];
+        int nresults = lcvdb_search(&vdb,
+            (const int8_t *)((char *)vec_buf + last_id * sizeof(lcvdb_vec_t)),
+            MAX_CONTEXT + 1, result_ids, result_scores);
+
+        /* Emit related prior turns as ChatML user/assistant pairs */
+        for (int i = 0; i < nresults; i++) {
+            uint16_t tid = result_ids[i];
+            if (tid == last_id) continue;  /* skip most recent, added below */
+            if (tid >= MAX_TURNS || !turns[tid].valid) continue;
+
+            const char *turn_text = turns[tid].text;
+            const char *asst_part = strstr(turn_text, "\nAssistant: ");
+            if (asst_part) {
+                const char *user_part = turn_text;
+                if (strncmp(user_part, "User: ", 6) == 0) user_part += 6;
+                int user_len = (int)(asst_part - user_part);
+                pos += snprintf(prompt + pos, prompt_max - pos,
+                    "<|im_start|>user\n%.*s<|im_end|>\n"
+                    "<|im_start|>assistant\n%s<|im_end|>\n",
+                    user_len, user_part, asst_part + 12);
+            }
+        }
+
+        /* Most recent turn — always include for continuity */
+        if (turns[last_id].valid) {
+            const char *turn_text = turns[last_id].text;
+            const char *asst_part = strstr(turn_text, "\nAssistant: ");
+            if (asst_part) {
+                const char *user_part = turn_text;
+                if (strncmp(user_part, "User: ", 6) == 0) user_part += 6;
+                int user_len = (int)(asst_part - user_part);
+                pos += snprintf(prompt + pos, prompt_max - pos,
+                    "<|im_start|>user\n%.*s<|im_end|>\n"
+                    "<|im_start|>assistant\n%s<|im_end|>\n",
+                    user_len, user_part, asst_part + 12);
+            }
         }
     }
 
@@ -409,6 +416,11 @@ static int build_prompt(char *prompt, int prompt_max,
     pos += snprintf(prompt + pos, prompt_max - pos,
         "<|im_start|>user\n%s<|im_end|>\n"
         "<|im_start|>assistant\n", user_input);
+
+    /* For thinking models: inject empty think block to skip chain-of-thought */
+    if (g_no_think)
+        pos += snprintf(prompt + pos, prompt_max - pos,
+            "<think>\n</think>\n");
 
     return pos;
 }
@@ -423,9 +435,9 @@ int main(int argc, char **argv) {
 
     const char *model_path = argv[1];
     int n_threads   = 2;
-    int n_ctx       = 4096;
+    int n_ctx       = 3072;
     int n_predict   = MAX_RESPONSE;
-    float temp      = 0.7f;
+    float temp      = 0.4f;
     int top_k       = 40;
     float top_p     = 0.9f;
     int use_memory  = 1;
@@ -456,6 +468,8 @@ int main(int argc, char **argv) {
             top_p = (float)atof(argv[++i]);
         else if (strcmp(argv[i], "--no-memory") == 0)
             use_memory = 0;
+        else if (strcmp(argv[i], "--no-think") == 0)
+            g_no_think = 1;
         else if (strcmp(argv[i], "--rag") == 0)
             rag_cfg.enabled = 1;
         else if (strcmp(argv[i], "--no-rag") == 0)
@@ -531,7 +545,14 @@ int main(int argc, char **argv) {
     } else {
         llama_sampler_chain_add(smpl, llama_sampler_init_top_k(top_k));
         llama_sampler_chain_add(smpl, llama_sampler_init_top_p(top_p, 1));
+        llama_sampler_chain_add(smpl, llama_sampler_init_min_p(0.05f, 1));
         llama_sampler_chain_add(smpl, llama_sampler_init_temp(temp));
+        llama_sampler_chain_add(smpl, llama_sampler_init_penalties(
+            64,     /* penalty_last_n: penalize repeats in last 64 tokens */
+            1.1f,   /* penalty_repeat: 1.1 = mild repetition penalty     */
+            0.0f,   /* penalty_freq:   disabled                          */
+            0.0f    /* penalty_present: disabled                         */
+        ));
         llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
     }
 

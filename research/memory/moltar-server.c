@@ -54,7 +54,7 @@
 #define RAG_EMBEDDING   RAG_BASE "/llama-embedding"
 #define RAG_SEARCH      RAG_BASE "/moltar_rag"
 #define RAG_INDEX       RAG_BASE "/rag_index"
-#define RAG_TOP_K       3
+#define RAG_TOP_K      5
 
 /* ---------- HTTP Configuration ---------- */
 
@@ -210,50 +210,65 @@ static int build_prompt(char *prompt, int prompt_max,
                         const char *user_input, int use_memory,
                         const char *knowledge_ctx) {
     int pos = 0;
+
+    /* System message with grounding instructions */
     pos += snprintf(prompt + pos, prompt_max - pos,
         "<|im_start|>system\n"
-        "You are Moltar, a helpful AI assistant running on a Motorola phone. "
-        "Be concise and direct.");
+        "You are Moltar, a concise and accurate AI assistant. "
+        "Answer based on the provided reference information when available. "
+        "If the reference does not answer the question, say so. "
+        "Do not make up facts.");
+
+    /* Knowledge context from ColBERT RAG — clearly delineated */
     if (knowledge_ctx && knowledge_ctx[0])
         pos += snprintf(prompt + pos, prompt_max - pos,
-            "\n\nKnowledge base:\n%s", knowledge_ctx);
-    if (use_memory && n_turns > 0 && n_turns >= 1) {
+            "\n\n## Reference\n%s", knowledge_ctx);
+
+    pos += snprintf(prompt + pos, prompt_max - pos, "<|im_end|>\n");
+
+    /* Working memory: include recent turns as proper ChatML exchanges */
+    if (use_memory && n_turns > 0) {
         uint16_t last_id = (uint16_t)(n_turns - 1);
         uint16_t result_ids[MAX_CONTEXT + 1];
         int32_t  result_scores[MAX_CONTEXT + 1];
         int nresults = lcvdb_search(&vdb,
             (const int8_t *)((char *)vec_buf + last_id * sizeof(lcvdb_vec_t)),
             MAX_CONTEXT + 1, result_ids, result_scores);
-        int context_count = 0;
-        char context_buf[MAX_TURN_TEXT * MAX_CONTEXT];
-        int ctx_pos = 0;
-        for (int i = 0; i < nresults && context_count < MAX_CONTEXT; i++) {
+
+        /* Emit related prior turns as ChatML user/assistant pairs */
+        for (int i = 0; i < nresults; i++) {
             uint16_t tid = result_ids[i];
             if (tid == last_id) continue;
-            if (tid < MAX_TURNS && turns[tid].valid) {
-                ctx_pos += snprintf(context_buf + ctx_pos,
-                    sizeof(context_buf) - ctx_pos, "- %s\n", turns[tid].text);
-                context_count++;
+            if (tid >= MAX_TURNS || !turns[tid].valid) continue;
+            const char *turn_text = turns[tid].text;
+            const char *asst_part = strstr(turn_text, "\nAssistant: ");
+            if (asst_part) {
+                const char *user_part = turn_text;
+                if (strncmp(user_part, "User: ", 6) == 0) user_part += 6;
+                int user_len = (int)(asst_part - user_part);
+                pos += snprintf(prompt + pos, prompt_max - pos,
+                    "<|im_start|>user\n%.*s<|im_end|>\n"
+                    "<|im_start|>assistant\n%s<|im_end|>\n",
+                    user_len, user_part, asst_part + 12);
             }
         }
-        if (context_count > 0)
-            pos += snprintf(prompt + pos, prompt_max - pos,
-                "\n\nRelevant prior conversation:\n%s", context_buf);
-    }
-    pos += snprintf(prompt + pos, prompt_max - pos, "<|im_end|>\n");
-    if (use_memory && n_turns >= 1 && turns[n_turns - 1].valid) {
-        const char *turn_text = turns[n_turns - 1].text;
-        const char *asst_part = strstr(turn_text, "\nAssistant: ");
-        if (asst_part) {
-            const char *user_part = turn_text;
-            if (strncmp(user_part, "User: ", 6) == 0) user_part += 6;
-            int user_len = (int)(asst_part - user_part);
-            pos += snprintf(prompt + pos, prompt_max - pos,
-                "<|im_start|>user\n%.*s<|im_end|>\n"
-                "<|im_start|>assistant\n%s<|im_end|>\n",
-                user_len, user_part, asst_part + 12);
+
+        /* Most recent turn — always include for continuity */
+        if (turns[last_id].valid) {
+            const char *turn_text = turns[last_id].text;
+            const char *asst_part = strstr(turn_text, "\nAssistant: ");
+            if (asst_part) {
+                const char *user_part = turn_text;
+                if (strncmp(user_part, "User: ", 6) == 0) user_part += 6;
+                int user_len = (int)(asst_part - user_part);
+                pos += snprintf(prompt + pos, prompt_max - pos,
+                    "<|im_start|>user\n%.*s<|im_end|>\n"
+                    "<|im_start|>assistant\n%s<|im_end|>\n",
+                    user_len, user_part, asst_part + 12);
+            }
         }
     }
+
     pos += snprintf(prompt + pos, prompt_max - pos,
         "<|im_start|>user\n%s<|im_end|>\n<|im_start|>assistant\n", user_input);
     return pos;
@@ -627,8 +642,8 @@ int main(int argc, char **argv) {
     }
 
     g_model_path = argv[1];
-    int n_threads = 2, n_ctx = 4096, port = DEFAULT_PORT;
-    float temp = 0.7f;
+    int n_threads = 2, n_ctx = 3072, port = DEFAULT_PORT;
+    float temp = 0.4f;
     int top_k = 40;
     float top_p = 0.9f;
     g_session_path = NULL;
@@ -693,7 +708,10 @@ int main(int argc, char **argv) {
     } else {
         llama_sampler_chain_add(g_smpl, llama_sampler_init_top_k(top_k));
         llama_sampler_chain_add(g_smpl, llama_sampler_init_top_p(top_p, 1));
+        llama_sampler_chain_add(g_smpl, llama_sampler_init_min_p(0.05f, 1));
         llama_sampler_chain_add(g_smpl, llama_sampler_init_temp(temp));
+        llama_sampler_chain_add(g_smpl, llama_sampler_init_penalties(
+            64, 1.1f, 0.0f, 0.0f));
         llama_sampler_chain_add(g_smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
     }
 
